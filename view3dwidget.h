@@ -42,6 +42,8 @@ private:
     void appendWallSegment(const WallItem *wall,
                            qreal startDistance,
                            qreal endDistance,
+                           qreal baseY,
+                           qreal height,
                            QVector<QVector3D> &vertices) const;
     void appendOpeningMesh(const WallItem *wall,
                            const OpeningItem *opening,

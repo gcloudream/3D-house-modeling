@@ -403,7 +403,7 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
 
     QList<OpeningItem *> openings = wall->openings();
     if (openings.isEmpty()) {
-        appendWallSegment(wall, 0.0, totalLength, vertices);
+        appendWallSegment(wall, 0.0, totalLength, 0.0, wall->height(), vertices);
         return;
     }
 
@@ -423,7 +423,7 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
         qreal start = qBound(0.0, opening->distanceFromStart(), totalLength);
         qreal end = qBound(0.0, start + opening->width(), totalLength);
         if (start > cursor) {
-            appendWallSegment(wall, cursor, start, vertices);
+            appendWallSegment(wall, cursor, start, 0.0, wall->height(), vertices);
         }
         cursor = qMax(cursor, end);
         if (opening->kind() == OpeningItem::Kind::Window) {
@@ -459,19 +459,40 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
                 break;
             }
         }
+
+        const qreal wallHeight = wall->height();
+        qreal openingBase =
+            opening->kind() == OpeningItem::Kind::Door
+                ? 0.0
+                : opening->sillHeight();
+        openingBase = qBound(0.0, openingBase, wallHeight);
+        qreal openingTop = openingBase + opening->height();
+        openingTop = qBound(openingBase, openingTop, wallHeight);
+
+        if (openingBase > 0.1) {
+            appendWallSegment(wall, start, end, 0.0, openingBase, vertices);
+        }
+        if (openingTop + 0.1 < wallHeight) {
+            appendWallSegment(wall, start, end,
+                              openingTop,
+                              wallHeight - openingTop,
+                              vertices);
+        }
     }
 
     if (cursor < totalLength) {
-        appendWallSegment(wall, cursor, totalLength, vertices);
+        appendWallSegment(wall, cursor, totalLength, 0.0, wall->height(), vertices);
     }
 }
 
 void View3DWidget::appendWallSegment(const WallItem *wall,
                                      qreal startDistance,
                                      qreal endDistance,
+                                     qreal baseY,
+                                     qreal height,
                                      QVector<QVector3D> &vertices) const
 {
-    if (!wall || endDistance - startDistance < 0.1) {
+    if (!wall || endDistance - startDistance < 0.1 || height < 0.1) {
         return;
     }
 
@@ -495,7 +516,7 @@ void View3DWidget::appendWallSegment(const WallItem *wall,
     const QPointF p3 = segEnd - offset;
     const QPointF p4 = segStart - offset;
 
-    appendBoxFromQuad(p1, p2, p3, p4, 0.0, wall->height(), vertices);
+    appendBoxFromQuad(p1, p2, p3, p4, baseY, height, vertices);
 }
 
 void View3DWidget::appendOpeningMesh(const WallItem *wall,
