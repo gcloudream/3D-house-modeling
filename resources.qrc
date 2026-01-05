@@ -1,5 +1,11 @@
 <RCC>
     <qresource prefix="/">
         <file>styles.qss</file>
+        <file>assets/icons/door_single.svg</file>
+        <file>assets/icons/door_double.svg</file>
+        <file>assets/icons/door_sliding.svg</file>
+        <file>assets/icons/window_casement.svg</file>
+        <file>assets/icons/window_sliding.svg</file>
+        <file>assets/icons/window_bay.svg</file>
     </qresource>
 </RCC>

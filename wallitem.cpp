@@ -1,5 +1,7 @@
 #include "wallitem.h"
 
+#include "openingitem.h"
+
 #include <QBrush>
 #include <QLineF>
 #include <QPen>
@@ -15,10 +17,14 @@ WallItem::WallItem(const QPointF &start,
     , m_end(end)
     , m_thickness(thickness)
     , m_height(height)
+    , m_openings()
+    , m_basePen(QColor(63, 73, 84), 1.2)
+    , m_baseBrush(QColor(186, 195, 205))
+    , m_highlighted(false)
 {
     setFlags(QGraphicsItem::ItemIsSelectable);
-    setPen(QPen(QColor(63, 73, 84), 1.2));
-    setBrush(QBrush(QColor(186, 195, 205)));
+    setPen(m_basePen);
+    setBrush(m_baseBrush);
     updateGeometry();
 }
 
@@ -103,4 +109,61 @@ void WallItem::updateGeometry()
     const QPointF p4 = m_start - offset;
 
     setPolygon(QPolygonF() << p1 << p2 << p3 << p4);
+    syncOpenings();
+}
+
+void WallItem::addOpening(OpeningItem *opening)
+{
+    if (!opening || m_openings.contains(opening)) {
+        return;
+    }
+    m_openings.append(opening);
+    opening->setWall(this);
+    opening->syncWithWall();
+}
+
+void WallItem::removeOpening(OpeningItem *opening)
+{
+    if (!opening) {
+        return;
+    }
+    m_openings.removeAll(opening);
+    if (opening->wall() == this) {
+        opening->setWall(nullptr);
+    }
+}
+
+QList<OpeningItem *> WallItem::openings() const
+{
+    return m_openings;
+}
+
+void WallItem::setHighlighted(bool highlighted)
+{
+    if (m_highlighted == highlighted) {
+        return;
+    }
+    m_highlighted = highlighted;
+    if (m_highlighted) {
+        setPen(QPen(QColor(47, 110, 143), 2.0));
+        setBrush(QBrush(QColor(200, 214, 226)));
+    } else {
+        setPen(m_basePen);
+        setBrush(m_baseBrush);
+    }
+    update();
+}
+
+bool WallItem::isHighlighted() const
+{
+    return m_highlighted;
+}
+
+void WallItem::syncOpenings()
+{
+    for (OpeningItem *opening : m_openings) {
+        if (opening) {
+            opening->syncWithWall();
+        }
+    }
 }

@@ -1,7 +1,11 @@
 ﻿#include "designscene.h"
 
 #include "blueprintitem.h"
+#include "componentlistwidget.h"
+#include "dooritem.h"
+#include "openingitem.h"
 #include "wallitem.h"
+#include "windowitem.h"
 
 #include <QBrush>
 #include <QGraphicsEllipseItem>
@@ -9,14 +13,19 @@
 #include <QGraphicsLineItem>
 #include <QGraphicsSimpleTextItem>
 #include <QGraphicsSceneMouseEvent>
+#include <QGraphicsSceneDragDropEvent>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QLineF>
 #include <QList>
+#include <QMimeData>
 #include <QPen>
 #include <QRectF>
 #include <QTransform>
 #include <QVector2D>
 #include <QtGlobal>
+#include <cmath>
 
 DesignScene::DesignScene(QObject *parent)
     : QGraphicsScene(parent)
@@ -39,6 +48,8 @@ DesignScene::DesignScene(QObject *parent)
     , m_lastMousePos(0.0, 0.0)
     , m_lengthInput()
     , m_lastDirection(1.0f, 0.0f)
+    , m_previewOpening(nullptr)
+    , m_hoverWall(nullptr)
 {
     setSceneRect(-50000.0, -50000.0, 100000.0, 100000.0);
 
@@ -63,6 +74,8 @@ void DesignScene::setMode(DesignScene::Mode mode)
     if (m_mode == mode) {
         return;
     }
+
+    clearOpeningPreview();
 
     if (m_mode == Mode_DrawWall && mode != Mode_DrawWall) {
         finalizeWall(QPointF(), false);
@@ -395,6 +408,130 @@ void DesignScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
     QGraphicsScene::mouseReleaseEvent(event);
 }
 
+void DesignScene::dragEnterEvent(QGraphicsSceneDragDropEvent *event)
+{
+    if (event->mimeData() &&
+        event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+        event->acceptProposedAction();
+        return;
+    }
+    event->ignore();
+}
+
+void DesignScene::dragMoveEvent(QGraphicsSceneDragDropEvent *event)
+{
+    if (!event->mimeData() ||
+        !event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+        event->ignore();
+        return;
+    }
+
+    const QByteArray raw = event->mimeData()->data(ComponentListWidget::openingMimeType());
+    QJsonParseError error{};
+    const QJsonDocument doc = QJsonDocument::fromJson(raw, &error);
+    if (doc.isNull() || !doc.isObject()) {
+        event->ignore();
+        return;
+    }
+
+    const QJsonObject obj = doc.object();
+    const QString kind = obj.value("kind").toString();
+    const QString style = obj.value("style").toString();
+    const qreal width = obj.value("width").toDouble(900.0);
+    const qreal height = obj.value("height").toDouble(2100.0);
+    const qreal sill = obj.value("sill").toDouble(0.0);
+
+    const bool needNewPreview =
+        !m_previewOpening ||
+        (kind == "door" && m_previewOpening->kind() != OpeningItem::Kind::Door) ||
+        (kind != "door" && m_previewOpening->kind() != OpeningItem::Kind::Window);
+
+    if (needNewPreview) {
+        clearOpeningPreview();
+        if (kind == "door") {
+            DoorItem::DoorStyle doorStyle = DoorItem::DoorStyle::Single;
+            if (style == "double") {
+                doorStyle = DoorItem::DoorStyle::Double;
+            } else if (style == "sliding") {
+                doorStyle = DoorItem::DoorStyle::Sliding;
+            }
+            m_previewOpening = new DoorItem(doorStyle, width, height);
+        } else {
+            WindowItem::WindowStyle windowStyle = WindowItem::WindowStyle::Casement;
+            if (style == "sliding") {
+                windowStyle = WindowItem::WindowStyle::Sliding;
+            } else if (style == "bay") {
+                windowStyle = WindowItem::WindowStyle::Bay;
+            }
+            m_previewOpening = new WindowItem(windowStyle, width, height, sill);
+        }
+        m_previewOpening->setPreview(true);
+        addItem(m_previewOpening);
+    }
+
+    if (m_previewOpening) {
+        m_previewOpening->setWidth(width);
+        m_previewOpening->setHeight(height);
+        m_previewOpening->setSillHeight(sill);
+    }
+
+    const QPointF scenePos = event->scenePos();
+    qreal distanceAlong = 0.0;
+    WallItem *wall = findWallNear(scenePos, 50.0, &distanceAlong);
+    updateHoverWall(wall);
+
+    if (wall) {
+        m_previewOpening->setVisible(true);
+        m_previewOpening->setWall(wall);
+
+        const qreal length = QLineF(wall->startPos(), wall->endPos()).length();
+        qreal centerDistance = distanceAlong;
+        const qreal snapDistance = 80.0;
+        if (qAbs(centerDistance) <= snapDistance) {
+            centerDistance = 0.0;
+        } else if (qAbs(centerDistance - length / 2.0) <= snapDistance) {
+            centerDistance = length / 2.0;
+        } else if (qAbs(centerDistance - length) <= snapDistance) {
+            centerDistance = length;
+        }
+        const qreal startDistance = centerDistance - width / 2.0;
+        m_previewOpening->setDistanceFromStart(startDistance);
+        m_previewOpening->syncWithWall();
+    } else if (m_previewOpening) {
+        m_previewOpening->setVisible(false);
+    }
+
+    event->acceptProposedAction();
+}
+
+void DesignScene::dragLeaveEvent(QGraphicsSceneDragDropEvent *event)
+{
+    Q_UNUSED(event);
+    clearOpeningPreview();
+}
+
+void DesignScene::dropEvent(QGraphicsSceneDragDropEvent *event)
+{
+    if (!event->mimeData() ||
+        !event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+        event->ignore();
+        return;
+    }
+
+    if (m_previewOpening && m_hoverWall) {
+        m_previewOpening->setPreview(false);
+        m_hoverWall->addOpening(m_previewOpening);
+        m_previewOpening->setSelected(true);
+        notifySceneChanged();
+        m_previewOpening = nullptr;
+        updateHoverWall(nullptr);
+    } else {
+        clearOpeningPreview();
+    }
+
+    event->acceptProposedAction();
+}
+
 void DesignScene::keyPressEvent(QKeyEvent *event)
 {
     if (m_mode == Mode_DrawWall && m_activeWall) {
@@ -697,4 +834,68 @@ void DesignScene::resetCalibration()
 
     m_lastCalibrationLength = 0.0;
     updateSnapIndicator(QPointF(), false);
+}
+
+WallItem *DesignScene::findWallNear(const QPointF &pos,
+                                    qreal maxDistance,
+                                    qreal *distanceAlong) const
+{
+    WallItem *closest = nullptr;
+    qreal bestDistance = maxDistance;
+    qreal bestAlong = 0.0;
+
+    const QList<WallItem *> walls = wallItems();
+    for (WallItem *wall : walls) {
+        if (!wall) {
+            continue;
+        }
+        const QPointF start = wall->startPos();
+        const QPointF end = wall->endPos();
+        const QPointF v = end - start;
+        const qreal denom = v.x() * v.x() + v.y() * v.y();
+        if (denom < 0.0001) {
+            continue;
+        }
+
+        const QPointF w = pos - start;
+        qreal t = (w.x() * v.x() + w.y() * v.y()) / denom;
+        t = qBound(0.0, t, 1.0);
+        const QPointF proj = start + v * t;
+        const qreal distance = QLineF(pos, proj).length();
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            closest = wall;
+            bestAlong = t * std::sqrt(denom);
+        }
+    }
+
+    if (distanceAlong) {
+        *distanceAlong = bestAlong;
+    }
+    return closest;
+}
+
+void DesignScene::updateHoverWall(WallItem *wall)
+{
+    if (m_hoverWall == wall) {
+        return;
+    }
+
+    if (m_hoverWall) {
+        m_hoverWall->setHighlighted(false);
+    }
+    m_hoverWall = wall;
+    if (m_hoverWall) {
+        m_hoverWall->setHighlighted(true);
+    }
+}
+
+void DesignScene::clearOpeningPreview()
+{
+    updateHoverWall(nullptr);
+    if (m_previewOpening) {
+        removeItem(m_previewOpening);
+        delete m_previewOpening;
+        m_previewOpening = nullptr;
+    }
 }

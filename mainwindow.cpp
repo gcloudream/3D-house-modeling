@@ -1,7 +1,9 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
+#include "componentlistwidget.h"
 #include "designscene.h"
+#include "openingitem.h"
 #include "view2dwidget.h"
 #include "view3dwidget.h"
 #include "wallitem.h"
@@ -13,10 +15,12 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGraphicsItem>
+#include <QIcon>
 #include <QInputDialog>
 #include <QLineF>
 #include <QFont>
 #include <QFrame>
+#include <QGroupBox>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
@@ -36,6 +40,8 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -48,6 +54,8 @@ MainWindow::MainWindow(QWidget *parent)
     , m_zoomLabel(nullptr)
     , m_hintLabel(nullptr)
     , m_componentList(nullptr)
+    , m_wallGroup(nullptr)
+    , m_openingGroup(nullptr)
     , m_nameValue(nullptr)
     , m_startXSpin(nullptr)
     , m_startYSpin(nullptr)
@@ -57,6 +65,11 @@ MainWindow::MainWindow(QWidget *parent)
     , m_angleSpin(nullptr)
     , m_heightSpin(nullptr)
     , m_thicknessSpin(nullptr)
+    , m_openingTypeValue(nullptr)
+    , m_openingWidthSpin(nullptr)
+    , m_openingHeightSpin(nullptr)
+    , m_openingSillSpin(nullptr)
+    , m_openingOffsetSpin(nullptr)
     , m_blueprintOpacitySlider(nullptr)
     , m_selectAction(nullptr)
     , m_drawWallAction(nullptr)
@@ -102,12 +115,68 @@ void MainWindow::setupDocks()
 {
     auto *libraryDock = new QDockWidget(tr("组件库"), this);
     libraryDock->setObjectName("componentLibraryDock");
-    m_componentList = new QListWidget(libraryDock);
+    m_componentList = new ComponentListWidget(libraryDock);
     m_componentList->setObjectName("componentList");
     m_componentList->setSpacing(4);
-    m_componentList->addItems(QStringList() << tr("墙体")
-                                            << tr("门窗")
-                                            << tr("家具"));
+    m_componentList->setIconSize(QSize(24, 24));
+
+    auto addHeader = [this](const QString &text) {
+        auto *item = new QListWidgetItem(text, m_componentList);
+        item->setFlags(Qt::ItemIsEnabled);
+        QFont font = item->font();
+        font.setBold(true);
+        item->setFont(font);
+        item->setForeground(QColor(47, 110, 143));
+        item->setData(Qt::UserRole, QByteArray());
+    };
+
+    auto addOpeningItem = [this](const QString &text,
+                                 const QString &kind,
+                                 const QString &style,
+                                 int width,
+                                 int height,
+                                 int sill,
+                                 const QString &iconPath) {
+        QJsonObject obj;
+        obj["kind"] = kind;
+        obj["style"] = style;
+        obj["width"] = width;
+        obj["height"] = height;
+        obj["sill"] = sill;
+        QListWidgetItem *item =
+            new QListWidgetItem(QIcon(iconPath), text, m_componentList);
+        item->setData(Qt::UserRole,
+                      QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    };
+
+    addHeader(tr("墙体"));
+    auto *wallTip = new QListWidgetItem(tr("使用工具栏绘制墙体"), m_componentList);
+    wallTip->setFlags(Qt::ItemIsEnabled);
+    wallTip->setForeground(QColor(121, 133, 147));
+    wallTip->setData(Qt::UserRole, QByteArray());
+
+    addHeader(tr("门"));
+    addOpeningItem(tr("单开门 64x150"), "door", "single", 64, 150, 0,
+                   ":/icons/door_single.svg");
+    addOpeningItem(tr("双开门 114x150"), "door", "double", 114, 150, 0,
+                   ":/icons/door_double.svg");
+    addOpeningItem(tr("推拉门 86x150"), "door", "sliding", 86, 150, 0,
+                   ":/icons/door_sliding.svg");
+
+    addHeader(tr("窗"));
+    addOpeningItem(tr("平开窗 100x100"), "window", "casement", 100, 100, 50,
+                   ":/icons/window_casement.svg");
+    addOpeningItem(tr("推拉窗 100x100"), "window", "sliding", 100, 100, 50,
+                   ":/icons/window_sliding.svg");
+    addOpeningItem(tr("飘窗 100x100"), "window", "bay", 100, 100, 50,
+                   ":/icons/window_bay.svg");
+
+    addHeader(tr("家具"));
+    auto *furnitureTip = new QListWidgetItem(tr("家具系统待开启"), m_componentList);
+    furnitureTip->setFlags(Qt::ItemIsEnabled);
+    furnitureTip->setForeground(QColor(121, 133, 147));
+    furnitureTip->setData(Qt::UserRole, QByteArray());
+
     libraryDock->setWidget(m_componentList);
     libraryDock->setMinimumWidth(200);
     addDockWidget(Qt::LeftDockWidgetArea, libraryDock);
@@ -115,16 +184,20 @@ void MainWindow::setupDocks()
     auto *propertiesDock = new QDockWidget(tr("属性面板"), this);
     propertiesDock->setObjectName("propertiesDock");
     auto *propertiesWidget = new QWidget(propertiesDock);
-    auto *formLayout = new QFormLayout(propertiesWidget);
-    m_nameValue = new QLabel("-", propertiesWidget);
-    m_lengthSpin = new QDoubleSpinBox(propertiesWidget);
-    m_heightSpin = new QDoubleSpinBox(propertiesWidget);
-    m_thicknessSpin = new QDoubleSpinBox(propertiesWidget);
-    m_startXSpin = new QDoubleSpinBox(propertiesWidget);
-    m_startYSpin = new QDoubleSpinBox(propertiesWidget);
-    m_endXSpin = new QDoubleSpinBox(propertiesWidget);
-    m_endYSpin = new QDoubleSpinBox(propertiesWidget);
-    m_angleSpin = new QDoubleSpinBox(propertiesWidget);
+    auto *propertiesLayout = new QVBoxLayout(propertiesWidget);
+    propertiesLayout->setContentsMargins(10, 10, 10, 10);
+
+    m_wallGroup = new QGroupBox(tr("墙体属性"), propertiesWidget);
+    auto *wallLayout = new QFormLayout(m_wallGroup);
+    m_nameValue = new QLabel("-", m_wallGroup);
+    m_lengthSpin = new QDoubleSpinBox(m_wallGroup);
+    m_heightSpin = new QDoubleSpinBox(m_wallGroup);
+    m_thicknessSpin = new QDoubleSpinBox(m_wallGroup);
+    m_startXSpin = new QDoubleSpinBox(m_wallGroup);
+    m_startYSpin = new QDoubleSpinBox(m_wallGroup);
+    m_endXSpin = new QDoubleSpinBox(m_wallGroup);
+    m_endYSpin = new QDoubleSpinBox(m_wallGroup);
+    m_angleSpin = new QDoubleSpinBox(m_wallGroup);
 
     const double coordLimit = 100000.0;
     for (QDoubleSpinBox *spin : {m_startXSpin, m_startYSpin, m_endXSpin, m_endYSpin}) {
@@ -157,21 +230,52 @@ void MainWindow::setupDocks()
     m_thicknessSpin->setEnabled(false);
     m_angleSpin->setEnabled(false);
 
-    formLayout->addRow(tr("名称"), m_nameValue);
-    formLayout->addRow(tr("起点 X"), m_startXSpin);
-    formLayout->addRow(tr("起点 Y"), m_startYSpin);
-    formLayout->addRow(tr("终点 X"), m_endXSpin);
-    formLayout->addRow(tr("终点 Y"), m_endYSpin);
-    formLayout->addRow(tr("长度"), m_lengthSpin);
-    formLayout->addRow(tr("角度"), m_angleSpin);
-    formLayout->addRow(tr("高度"), m_heightSpin);
-    formLayout->addRow(tr("厚度"), m_thicknessSpin);
+    wallLayout->addRow(tr("名称"), m_nameValue);
+    wallLayout->addRow(tr("起点 X"), m_startXSpin);
+    wallLayout->addRow(tr("起点 Y"), m_startYSpin);
+    wallLayout->addRow(tr("终点 X"), m_endXSpin);
+    wallLayout->addRow(tr("终点 Y"), m_endYSpin);
+    wallLayout->addRow(tr("长度"), m_lengthSpin);
+    wallLayout->addRow(tr("角度"), m_angleSpin);
+    wallLayout->addRow(tr("高度"), m_heightSpin);
+    wallLayout->addRow(tr("厚度"), m_thicknessSpin);
 
-    m_blueprintOpacitySlider = new QSlider(Qt::Horizontal, propertiesWidget);
+    m_blueprintOpacitySlider = new QSlider(Qt::Horizontal, m_wallGroup);
     m_blueprintOpacitySlider->setRange(0, 100);
     m_blueprintOpacitySlider->setValue(60);
     m_blueprintOpacitySlider->setEnabled(false);
-    formLayout->addRow(tr("底图透明度"), m_blueprintOpacitySlider);
+    wallLayout->addRow(tr("底图透明度"), m_blueprintOpacitySlider);
+
+    m_openingGroup = new QGroupBox(tr("门窗属性"), propertiesWidget);
+    auto *openingLayout = new QFormLayout(m_openingGroup);
+    m_openingTypeValue = new QLabel("-", m_openingGroup);
+    m_openingWidthSpin = new QDoubleSpinBox(m_openingGroup);
+    m_openingHeightSpin = new QDoubleSpinBox(m_openingGroup);
+    m_openingSillSpin = new QDoubleSpinBox(m_openingGroup);
+    m_openingOffsetSpin = new QDoubleSpinBox(m_openingGroup);
+
+    for (QDoubleSpinBox *spin : {m_openingWidthSpin, m_openingHeightSpin,
+                                 m_openingSillSpin, m_openingOffsetSpin}) {
+        spin->setDecimals(0);
+        spin->setSuffix(" mm");
+        spin->setEnabled(false);
+    }
+
+    m_openingWidthSpin->setRange(100.0, 10000.0);
+    m_openingHeightSpin->setRange(100.0, 10000.0);
+    m_openingSillSpin->setRange(0.0, 10000.0);
+    m_openingOffsetSpin->setRange(0.0, 100000.0);
+
+    openingLayout->addRow(tr("类型"), m_openingTypeValue);
+    openingLayout->addRow(tr("宽度"), m_openingWidthSpin);
+    openingLayout->addRow(tr("高度"), m_openingHeightSpin);
+    openingLayout->addRow(tr("离地"), m_openingSillSpin);
+    openingLayout->addRow(tr("距起点"), m_openingOffsetSpin);
+
+    propertiesLayout->addWidget(m_wallGroup);
+    propertiesLayout->addWidget(m_openingGroup);
+    propertiesLayout->addStretch();
+    m_openingGroup->setVisible(false);
 
     propertiesDock->setWidget(propertiesWidget);
     propertiesDock->setMinimumWidth(240);
@@ -263,17 +367,37 @@ void MainWindow::setupToolbar()
         const QList<QGraphicsItem *> items = m_scene->selectedItems();
         bool removed = false;
         for (QGraphicsItem *item : items) {
+            auto *opening = qgraphicsitem_cast<OpeningItem *>(item);
+            if (opening) {
+                WallItem *wall = opening->wall();
+                if (wall) {
+                    wall->removeOpening(opening);
+                }
+                m_scene->removeItem(opening);
+                delete opening;
+                removed = true;
+                continue;
+            }
             auto *wall = qgraphicsitem_cast<WallItem *>(item);
             if (!wall) {
                 continue;
+            }
+            const QList<OpeningItem *> openings = wall->openings();
+            for (OpeningItem *child : openings) {
+                if (child) {
+                    wall->removeOpening(child);
+                    m_scene->removeItem(child);
+                    delete child;
+                }
             }
             m_scene->removeItem(wall);
             delete wall;
             removed = true;
         }
         if (!removed) {
-            QMessageBox::information(this, tr("提示"), tr("请先选择墙体。"));
+            QMessageBox::information(this, tr("提示"), tr("请先选择墙体或门窗。"));
         }
+        m_scene->notifySceneChanged();
         updateSelectionDetails();
     });
     connect(alignHorizontalAction, &QAction::triggered, this, [this]() {
@@ -493,6 +617,47 @@ void MainWindow::connectSignals()
                 wall->setThickness(value);
                 m_scene->notifySceneChanged();
             });
+
+    connect(m_openingWidthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double value) {
+                OpeningItem *opening = selectedOpening();
+                if (!opening) {
+                    return;
+                }
+                opening->setWidth(value);
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_openingHeightSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double value) {
+                OpeningItem *opening = selectedOpening();
+                if (!opening) {
+                    return;
+                }
+                opening->setHeight(value);
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_openingSillSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double value) {
+                OpeningItem *opening = selectedOpening();
+                if (!opening) {
+                    return;
+                }
+                opening->setSillHeight(value);
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_openingOffsetSpin,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+                OpeningItem *opening = selectedOpening();
+                if (!opening) {
+                    return;
+                }
+                opening->setDistanceFromStart(value);
+                m_scene->notifySceneChanged();
+            });
 }
 
 void MainWindow::importBlueprint()
@@ -524,7 +689,39 @@ void MainWindow::importBlueprint()
 
 void MainWindow::updateSelectionDetails()
 {
+    OpeningItem *opening = selectedOpening();
     WallItem *wall = selectedWall();
+
+    if (opening) {
+        m_wallGroup->setVisible(false);
+        m_openingGroup->setVisible(true);
+
+        m_openingTypeValue->setText(
+            tr("%1 / %2").arg(opening->kindLabel(), opening->styleLabel()));
+        if (m_deleteAction) {
+            m_deleteAction->setEnabled(true);
+        }
+
+        const bool isWindow = opening->kind() == OpeningItem::Kind::Window;
+        m_openingWidthSpin->setEnabled(true);
+        m_openingHeightSpin->setEnabled(true);
+        m_openingSillSpin->setEnabled(isWindow);
+        m_openingOffsetSpin->setEnabled(true);
+
+        QSignalBlocker blockWidth(m_openingWidthSpin);
+        QSignalBlocker blockHeight(m_openingHeightSpin);
+        QSignalBlocker blockSill(m_openingSillSpin);
+        QSignalBlocker blockOffset(m_openingOffsetSpin);
+        m_openingWidthSpin->setValue(opening->width());
+        m_openingHeightSpin->setValue(opening->height());
+        m_openingSillSpin->setValue(opening->sillHeight());
+        m_openingOffsetSpin->setValue(opening->distanceFromStart());
+        return;
+    }
+
+    m_openingGroup->setVisible(false);
+    m_wallGroup->setVisible(true);
+
     if (!wall) {
         m_nameValue->setText("-");
         if (m_deleteAction) {
@@ -642,4 +839,14 @@ WallItem *MainWindow::selectedWall() const
     }
 
     return qgraphicsitem_cast<WallItem *>(items.first());
+}
+
+OpeningItem *MainWindow::selectedOpening() const
+{
+    const QList<QGraphicsItem *> items = m_scene->selectedItems();
+    if (items.isEmpty()) {
+        return nullptr;
+    }
+
+    return qgraphicsitem_cast<OpeningItem *>(items.first());
 }

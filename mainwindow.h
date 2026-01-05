@@ -7,12 +7,15 @@
 class View2DWidget;
 class WallItem;
 class View3DWidget;
+class OpeningItem;
+class ComponentListWidget;
 class QLabel;
 class QListWidget;
 class QDoubleSpinBox;
 class QSlider;
 class QAction;
 class QDockWidget;
+class QGroupBox;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -40,6 +43,7 @@ private:
     void handleCalibration(qreal measuredLength);
     void updateToolHint(DesignScene::Mode mode);
     WallItem *selectedWall() const;
+    OpeningItem *selectedOpening() const;
 
     Ui::MainWindow *ui;
     DesignScene *m_scene;
@@ -49,7 +53,9 @@ private:
     QLabel *m_coordLabel;
     QLabel *m_zoomLabel;
     QLabel *m_hintLabel;
-    QListWidget *m_componentList;
+    ComponentListWidget *m_componentList;
+    QGroupBox *m_wallGroup;
+    QGroupBox *m_openingGroup;
     QLabel *m_nameValue;
     QDoubleSpinBox *m_startXSpin;
     QDoubleSpinBox *m_startYSpin;
@@ -59,6 +65,11 @@ private:
     QDoubleSpinBox *m_angleSpin;
     QDoubleSpinBox *m_heightSpin;
     QDoubleSpinBox *m_thicknessSpin;
+    QLabel *m_openingTypeValue;
+    QDoubleSpinBox *m_openingWidthSpin;
+    QDoubleSpinBox *m_openingHeightSpin;
+    QDoubleSpinBox *m_openingSillSpin;
+    QDoubleSpinBox *m_openingOffsetSpin;
     QSlider *m_blueprintOpacitySlider;
     QAction *m_selectAction;
     QAction *m_drawWallAction;

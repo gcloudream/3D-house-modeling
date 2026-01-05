@@ -231,3 +231,18 @@ QDoubleSpinBox:disabled {
     background: #E7EDF2;
     color: #8A97A5;
 }
+
+QGroupBox {
+    border: 1px solid #C5CED7;
+    border-radius: 8px;
+    margin-top: 10px;
+    background: #EEF2F6;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: #2F6E8F;
+    font-weight: 600;
+}

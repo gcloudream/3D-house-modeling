@@ -9,6 +9,7 @@
 
 class BlueprintItem;
 class WallItem;
+class OpeningItem;
 class QGraphicsEllipseItem;
 class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
@@ -53,6 +54,10 @@ protected:
     void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void dragEnterEvent(QGraphicsSceneDragDropEvent *event) override;
+    void dragMoveEvent(QGraphicsSceneDragDropEvent *event) override;
+    void dragLeaveEvent(QGraphicsSceneDragDropEvent *event) override;
+    void dropEvent(QGraphicsSceneDragDropEvent *event) override;
 
 private:
     enum EditHandle {
@@ -74,6 +79,11 @@ private:
 
     void finalizeWall(const QPointF &endPos, bool applyEndPos);
     void resetCalibration();
+    WallItem *findWallNear(const QPointF &pos,
+                           qreal maxDistance,
+                           qreal *distanceAlong = nullptr) const;
+    void updateHoverWall(WallItem *wall);
+    void clearOpeningPreview();
 
     Mode m_mode;
     BlueprintItem *m_blueprintItem;
@@ -96,6 +106,8 @@ private:
     QString m_lengthInput;
     QGraphicsSimpleTextItem *m_lengthIndicator;
     QVector2D m_lastDirection;
+    OpeningItem *m_previewOpening;
+    WallItem *m_hoverWall;
 };
 
 #endif // DESIGNSCENE_H

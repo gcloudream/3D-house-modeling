@@ -13,6 +13,7 @@
 
 class DesignScene;
 class WallItem;
+class OpeningItem;
 
 class View3DWidget : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
 {
@@ -37,7 +38,15 @@ private slots:
 
 private:
     void rebuildGeometry();
-    void appendWallMesh(const WallItem *wall, QVector<QVector3D> &vertices) const;
+    void appendWallMesh(const WallItem *wall, QVector<QVector3D> &vertices);
+    void appendWallSegment(const WallItem *wall,
+                           qreal startDistance,
+                           qreal endDistance,
+                           QVector<QVector3D> &vertices) const;
+    void appendOpeningMesh(const WallItem *wall,
+                           const OpeningItem *opening,
+                           QVector<QVector3D> &solidVertices,
+                           QVector<QVector3D> &glassVertices) const;
     QMatrix4x4 viewMatrix() const;
 
     DesignScene *m_scene;
@@ -45,9 +54,20 @@ private:
     QOpenGLBuffer m_vbo;
     QOpenGLVertexArrayObject m_vao;
     QVector<QVector3D> m_vertices;
+    QVector<QVector3D> m_wallVertices;
+    QVector<QVector3D> m_openingVertices;
+    QVector<QVector3D> m_glassVertices;
     bool m_geometryDirty;
     int m_vertexCount;
     QMatrix4x4 m_projection;
+    struct MeshRanges {
+        int wallStart = 0;
+        int wallCount = 0;
+        int openingStart = 0;
+        int openingCount = 0;
+        int glassStart = 0;
+        int glassCount = 0;
+    } m_ranges;
 
     float m_distance;
     float m_yaw;

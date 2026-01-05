@@ -30,6 +30,8 @@ View2DWidget::View2DWidget(QWidget *parent)
     setDragMode(QGraphicsView::NoDrag);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    setAcceptDrops(true);
+    viewport()->setAcceptDrops(true);
 }
 
 void View2DWidget::drawBackground(QPainter *painter, const QRectF &rect)
