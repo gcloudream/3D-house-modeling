@@ -1,0 +1,12 @@
+release/blueprintitem.o
+release/designscene.o
+release/main.o
+release/mainwindow.o
+release/view3dwidget.o
+release/view2dwidget.o
+release/wallitem.o
+release/qrc_resources.o
+release/moc_designscene.o
+release/moc_mainwindow.o
+release/moc_view3dwidget.o
+release/moc_view2dwidget.o

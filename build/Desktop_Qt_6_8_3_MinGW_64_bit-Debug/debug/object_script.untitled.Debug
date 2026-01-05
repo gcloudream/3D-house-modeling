@@ -1,0 +1,12 @@
+debug/blueprintitem.o
+debug/designscene.o
+debug/main.o
+debug/mainwindow.o
+debug/view3dwidget.o
+debug/view2dwidget.o
+debug/wallitem.o
+debug/qrc_resources.o
+debug/moc_designscene.o
+debug/moc_mainwindow.o
+debug/moc_view3dwidget.o
+debug/moc_view2dwidget.o
