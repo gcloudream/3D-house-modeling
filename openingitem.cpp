@@ -242,27 +242,81 @@ void OpeningItem::paint(QPainter *painter,
     if (m_kind == Kind::Door) {
         painter->drawRect(maskRect);
 
-        QPainterPath swingPath;
-        swingPath.moveTo(QPointF(0.0, 0.0));
-        const QRectF arcRect = doorSwingRect();
+        const qreal swingDir = m_flipped ? -1.0 : 1.0;
         const int span = m_flipped ? 90 : -90;
-        swingPath.arcTo(arcRect, 0.0, span);
-        painter->drawPath(swingPath);
 
-        const QPointF leafEnd = m_flipped
-            ? QPointF(0.0, -m_width)
-            : QPointF(0.0, m_width);
-        painter->drawLine(QPointF(0.0, 0.0), leafEnd);
+        if (m_style == Style::SingleDoor) {
+            QPainterPath swingPath;
+            swingPath.moveTo(QPointF(0.0, 0.0));
+            const QRectF arcRect = doorSwingRect();
+            swingPath.arcTo(arcRect, 0.0, span);
+            painter->drawPath(swingPath);
 
-        const QVector2D dirVec(leafEnd);
-        if (dirVec.lengthSquared() > 0.001f) {
-            const QVector2D unit = dirVec.normalized();
-            const QPointF tip = leafEnd;
-            const QPointF back = tip - QPointF(unit.x(), unit.y()) * 8.0;
-            const QPointF left = back + QPointF(-unit.y(), unit.x()) * 4.0;
-            const QPointF right = back + QPointF(unit.y(), -unit.x()) * 4.0;
-            painter->drawLine(tip, left);
-            painter->drawLine(tip, right);
+            const QPointF leafEnd(0.0, swingDir * m_width);
+            painter->drawLine(QPointF(0.0, 0.0), leafEnd);
+
+            const QVector2D dirVec(leafEnd);
+            if (dirVec.lengthSquared() > 0.001f) {
+                const QVector2D unit = dirVec.normalized();
+                const QPointF tip = leafEnd;
+                const QPointF back = tip - QPointF(unit.x(), unit.y()) * 8.0;
+                const QPointF left = back + QPointF(-unit.y(), unit.x()) * 4.0;
+                const QPointF right = back + QPointF(unit.y(), -unit.x()) * 4.0;
+                painter->drawLine(tip, left);
+                painter->drawLine(tip, right);
+            }
+        } else if (m_style == Style::DoubleDoor) {
+            const qreal half = m_width * 0.5;
+            const QPointF hinge(half, 0.0);
+
+            painter->drawLine(QPointF(half, maskRect.top()),
+                              QPointF(half, maskRect.bottom()));
+
+            const QRectF arcRect(hinge.x() - half, -half, half * 2.0, half * 2.0);
+            QPainterPath leftArc;
+            leftArc.moveTo(hinge);
+            leftArc.arcTo(arcRect, 180.0, span);
+            painter->drawPath(leftArc);
+
+            QPainterPath rightArc;
+            rightArc.moveTo(hinge);
+            rightArc.arcTo(arcRect, 0.0, span);
+            painter->drawPath(rightArc);
+        } else if (m_style == Style::SlidingDoor) {
+            const qreal inset = qMax(2.0, maskRect.height() * 0.15);
+            const qreal panelHeight = maskRect.height() - inset * 2.0;
+            const qreal overlap = maskRect.width() * 0.2;
+            const QRectF panelLeft(maskRect.left() + inset,
+                                   maskRect.top() + inset,
+                                   maskRect.width() * 0.55,
+                                   panelHeight);
+            const QRectF panelRight(maskRect.left() + maskRect.width() * 0.45 - overlap,
+                                    maskRect.top() + inset,
+                                    maskRect.width() * 0.55,
+                                    panelHeight);
+            painter->drawRect(panelLeft);
+            painter->drawRect(panelRight);
+
+            painter->drawLine(QPointF(maskRect.left() + inset, maskRect.top() + inset),
+                              QPointF(maskRect.right() - inset, maskRect.top() + inset));
+            painter->drawLine(QPointF(maskRect.left() + inset, maskRect.bottom() - inset),
+                              QPointF(maskRect.right() - inset, maskRect.bottom() - inset));
+
+            const QPointF mid(maskRect.center().x(), maskRect.center().y());
+            const qreal arrowLen = maskRect.width() * 0.25;
+            painter->drawLine(QPointF(mid.x() - arrowLen, mid.y()),
+                              QPointF(mid.x() + arrowLen, mid.y()));
+
+            const QPointF leftArrow(mid.x() - arrowLen, mid.y());
+            const QPointF rightArrow(mid.x() + arrowLen, mid.y());
+            painter->drawLine(leftArrow,
+                              QPointF(leftArrow.x() + 3.0, leftArrow.y() - 2.0));
+            painter->drawLine(leftArrow,
+                              QPointF(leftArrow.x() + 3.0, leftArrow.y() + 2.0));
+            painter->drawLine(rightArrow,
+                              QPointF(rightArrow.x() - 3.0, rightArrow.y() - 2.0));
+            painter->drawLine(rightArrow,
+                              QPointF(rightArrow.x() - 3.0, rightArrow.y() + 2.0));
         }
 
         if (isSelected()) {

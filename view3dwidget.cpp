@@ -182,18 +182,66 @@ void View3DWidget::paintGL()
         glDrawArrays(GL_TRIANGLES, m_ranges.wallStart, m_ranges.wallCount);
     }
 
+    if (m_ranges.doorSingleCount > 0) {
+        m_program.setUniformValue("u_color", QVector3D(0.56f, 0.60f, 0.64f));
+        m_program.setUniformValue("u_alpha", 1.0f);
+        glDrawArrays(GL_TRIANGLES,
+                     m_ranges.doorSingleStart,
+                     m_ranges.doorSingleCount);
+    }
+
+    if (m_ranges.doorDoubleCount > 0) {
+        m_program.setUniformValue("u_color", QVector3D(0.50f, 0.55f, 0.60f));
+        m_program.setUniformValue("u_alpha", 1.0f);
+        glDrawArrays(GL_TRIANGLES,
+                     m_ranges.doorDoubleStart,
+                     m_ranges.doorDoubleCount);
+    }
+
+    if (m_ranges.doorSlidingCount > 0) {
+        m_program.setUniformValue("u_color", QVector3D(0.44f, 0.49f, 0.54f));
+        m_program.setUniformValue("u_alpha", 1.0f);
+        glDrawArrays(GL_TRIANGLES,
+                     m_ranges.doorSlidingStart,
+                     m_ranges.doorSlidingCount);
+    }
+
     if (m_ranges.openingCount > 0) {
         m_program.setUniformValue("u_color", QVector3D(0.45f, 0.50f, 0.56f));
         m_program.setUniformValue("u_alpha", 1.0f);
         glDrawArrays(GL_TRIANGLES, m_ranges.openingStart, m_ranges.openingCount);
     }
 
-    if (m_ranges.glassCount > 0) {
+    if (m_ranges.glassCasementCount > 0 ||
+        m_ranges.glassSlidingCount > 0 ||
+        m_ranges.glassBayCount > 0) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        m_program.setUniformValue("u_color", QVector3D(0.55f, 0.74f, 0.86f));
-        m_program.setUniformValue("u_alpha", 0.35f);
-        glDrawArrays(GL_TRIANGLES, m_ranges.glassStart, m_ranges.glassCount);
+
+        if (m_ranges.glassCasementCount > 0) {
+            m_program.setUniformValue("u_color", QVector3D(0.55f, 0.75f, 0.86f));
+            m_program.setUniformValue("u_alpha", 0.36f);
+            glDrawArrays(GL_TRIANGLES,
+                         m_ranges.glassCasementStart,
+                         m_ranges.glassCasementCount);
+        }
+
+        if (m_ranges.glassSlidingCount > 0) {
+            m_program.setUniformValue("u_color", QVector3D(0.42f, 0.62f, 0.74f));
+            m_program.setUniformValue("u_alpha", 0.28f);
+            glDrawArrays(GL_TRIANGLES,
+                         m_ranges.glassSlidingStart,
+                         m_ranges.glassSlidingCount);
+        }
+
+        if (m_ranges.glassBayCount > 0) {
+            m_program.setUniformValue("u_color", QVector3D(0.62f, 0.82f, 0.88f));
+            m_program.setUniformValue("u_alpha", 0.32f);
+            glDrawArrays(GL_TRIANGLES,
+                         m_ranges.glassBayStart,
+                         m_ranges.glassBayCount);
+        }
+
         glDisable(GL_BLEND);
     }
     m_program.release();
@@ -270,8 +318,13 @@ void View3DWidget::rebuildGeometry()
 {
     m_vertices.clear();
     m_wallVertices.clear();
+    m_doorSingleVertices.clear();
+    m_doorDoubleVertices.clear();
+    m_doorSlidingVertices.clear();
     m_openingVertices.clear();
-    m_glassVertices.clear();
+    m_glassCasementVertices.clear();
+    m_glassSlidingVertices.clear();
+    m_glassBayVertices.clear();
 
     if (!m_scene) {
         m_vertexCount = 0;
@@ -291,13 +344,35 @@ void View3DWidget::rebuildGeometry()
 
     m_ranges.wallStart = 0;
     m_ranges.wallCount = m_wallVertices.size();
-    m_ranges.openingStart = m_ranges.wallCount;
+    m_ranges.doorSingleStart = m_ranges.wallStart + m_ranges.wallCount;
+    m_ranges.doorSingleCount = m_doorSingleVertices.size();
+    m_ranges.doorDoubleStart =
+        m_ranges.doorSingleStart + m_ranges.doorSingleCount;
+    m_ranges.doorDoubleCount = m_doorDoubleVertices.size();
+    m_ranges.doorSlidingStart =
+        m_ranges.doorDoubleStart + m_ranges.doorDoubleCount;
+    m_ranges.doorSlidingCount = m_doorSlidingVertices.size();
+    m_ranges.openingStart =
+        m_ranges.doorSlidingStart + m_ranges.doorSlidingCount;
     m_ranges.openingCount = m_openingVertices.size();
-    m_ranges.glassStart = m_ranges.openingStart + m_ranges.openingCount;
-    m_ranges.glassCount = m_glassVertices.size();
+    m_ranges.glassCasementStart = m_ranges.openingStart + m_ranges.openingCount;
+    m_ranges.glassCasementCount = m_glassCasementVertices.size();
+    m_ranges.glassSlidingStart =
+        m_ranges.glassCasementStart + m_ranges.glassCasementCount;
+    m_ranges.glassSlidingCount = m_glassSlidingVertices.size();
+    m_ranges.glassBayStart =
+        m_ranges.glassSlidingStart + m_ranges.glassSlidingCount;
+    m_ranges.glassBayCount = m_glassBayVertices.size();
 
-    m_vertices.reserve(m_ranges.glassStart + m_ranges.glassCount);
-    m_vertices << m_wallVertices << m_openingVertices << m_glassVertices;
+    m_vertices.reserve(m_ranges.glassBayStart + m_ranges.glassBayCount);
+    m_vertices << m_wallVertices
+               << m_doorSingleVertices
+               << m_doorDoubleVertices
+               << m_doorSlidingVertices
+               << m_openingVertices
+               << m_glassCasementVertices
+               << m_glassSlidingVertices
+               << m_glassBayVertices;
 
     m_vertexCount = m_vertices.size();
 
@@ -351,7 +426,39 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
             appendWallSegment(wall, cursor, start, vertices);
         }
         cursor = qMax(cursor, end);
-        appendOpeningMesh(wall, opening, m_openingVertices, m_glassVertices);
+        if (opening->kind() == OpeningItem::Kind::Window) {
+            switch (opening->style()) {
+            case OpeningItem::Style::SlidingWindow:
+                appendOpeningMesh(wall, opening, m_openingVertices,
+                                  m_glassSlidingVertices);
+                break;
+            case OpeningItem::Style::BayWindow:
+                appendOpeningMesh(wall, opening, m_openingVertices,
+                                  m_glassBayVertices);
+                break;
+            case OpeningItem::Style::CasementWindow:
+            default:
+                appendOpeningMesh(wall, opening, m_openingVertices,
+                                  m_glassCasementVertices);
+                break;
+            }
+        } else {
+            switch (opening->style()) {
+            case OpeningItem::Style::SlidingDoor:
+                appendOpeningMesh(wall, opening, m_doorSlidingVertices,
+                                  m_glassCasementVertices);
+                break;
+            case OpeningItem::Style::DoubleDoor:
+                appendOpeningMesh(wall, opening, m_doorDoubleVertices,
+                                  m_glassCasementVertices);
+                break;
+            case OpeningItem::Style::SingleDoor:
+            default:
+                appendOpeningMesh(wall, opening, m_doorSingleVertices,
+                                  m_glassCasementVertices);
+                break;
+            }
+        }
     }
 
     if (cursor < totalLength) {
@@ -420,15 +527,16 @@ void View3DWidget::appendOpeningMesh(const WallItem *wall,
     const qreal baseHeight =
         opening->kind() == OpeningItem::Kind::Door ? 0.0 : opening->sillHeight();
 
-    const auto buildQuad = [&segLine](const QPointF &a,
-                                      const QPointF &b,
-                                      qreal thickness,
-                                      const QPointF &shift,
-                                      QPointF &o1,
-                                      QPointF &o2,
-                                      QPointF &o3,
-                                      QPointF &o4) {
-        QLineF normal = segLine.normalVector();
+    const auto buildQuadOnLine = [](const QLineF &line,
+                                    const QPointF &a,
+                                    const QPointF &b,
+                                    qreal thickness,
+                                    const QPointF &shift,
+                                    QPointF &o1,
+                                    QPointF &o2,
+                                    QPointF &o3,
+                                    QPointF &o4) {
+        QLineF normal = line.normalVector();
         normal.setLength(thickness / 2.0);
         const QPointF offset = normal.p2() - normal.p1();
         o1 = a + offset + shift;
@@ -438,11 +546,101 @@ void View3DWidget::appendOpeningMesh(const WallItem *wall,
     };
 
     if (opening->kind() == OpeningItem::Kind::Door) {
-        const qreal panelThickness = qMin(40.0, wall->thickness() * 0.6);
-        QPointF p1, p2, p3, p4;
-        buildQuad(segStart, segEnd, panelThickness, QPointF(), p1, p2, p3, p4);
-        appendBoxFromQuad(p1, p2, p3, p4, baseHeight, opening->height(),
-                          solidVertices);
+        const qreal panelThickness = qMin(36.0, wall->thickness() * 0.6);
+        const qreal openOffset = qMax(12.0, wall->thickness() * 0.6);
+        QLineF doorNormal = segLine.normalVector();
+        doorNormal.setLength(openOffset);
+        QVector2D outwardDir(doorNormal.p2() - doorNormal.p1());
+        if (outwardDir.lengthSquared() > 0.0001f) {
+            outwardDir.normalize();
+        }
+        QPointF outwardUnit(outwardDir.x(), outwardDir.y());
+        QPointF outward = outwardUnit * openOffset;
+        if (opening->isFlipped()) {
+            outward = -outward;
+        }
+
+        if (opening->style() == OpeningItem::Style::SlidingDoor) {
+            const qreal segmentLength = QLineF(segStart, segEnd).length();
+            if (segmentLength < 0.1) {
+                return;
+            }
+            const qreal panelWidth = segmentLength * 0.62;
+            const QPointF segDir = (segEnd - segStart) / segmentLength;
+            const QPointF leftStart = segStart;
+            const QPointF leftEnd = segStart + segDir * panelWidth;
+            const QPointF rightEnd = segEnd;
+            const QPointF rightStart = segEnd - segDir * panelWidth;
+            const qreal layerDepth = qMax(4.0, panelThickness * 0.25);
+            QPointF layerOffset = outwardUnit * layerDepth;
+            if (opening->isFlipped()) {
+                layerOffset = -layerOffset;
+            }
+
+            QPointF l1, l2, l3, l4;
+            buildQuadOnLine(segLine,
+                            leftStart,
+                            leftEnd,
+                            panelThickness,
+                            layerOffset,
+                            l1, l2, l3, l4);
+            appendBoxFromQuad(l1, l2, l3, l4, baseHeight, opening->height(),
+                              solidVertices);
+
+            QPointF r1, r2, r3, r4;
+            buildQuadOnLine(segLine,
+                            rightStart,
+                            rightEnd,
+                            panelThickness,
+                            -layerOffset,
+                            r1, r2, r3, r4);
+            appendBoxFromQuad(r1, r2, r3, r4, baseHeight, opening->height(),
+                              solidVertices);
+        } else if (opening->style() == OpeningItem::Style::DoubleDoor) {
+            const qreal segmentLength = QLineF(segStart, segEnd).length();
+            if (segmentLength < 0.1) {
+                return;
+            }
+            const QPointF segDir = (segEnd - segStart) / segmentLength;
+            const QPointF center = (segStart + segEnd) * 0.5;
+            const qreal gap = qMax(6.0, panelThickness * 0.4);
+            const QPointF leftEnd = center - segDir * gap * 0.5;
+            const QPointF rightStart = center + segDir * gap * 0.5;
+
+            const QLineF leftLine(segStart, leftEnd + outward);
+            const QLineF rightLine(segEnd, rightStart + outward);
+
+            QPointF l1, l2, l3, l4;
+            buildQuadOnLine(leftLine,
+                            segStart,
+                            leftEnd + outward,
+                            panelThickness,
+                            QPointF(),
+                            l1, l2, l3, l4);
+            appendBoxFromQuad(l1, l2, l3, l4, baseHeight, opening->height(),
+                              solidVertices);
+
+            QPointF r1, r2, r3, r4;
+            buildQuadOnLine(rightLine,
+                            segEnd,
+                            rightStart + outward,
+                            panelThickness,
+                            QPointF(),
+                            r1, r2, r3, r4);
+            appendBoxFromQuad(r1, r2, r3, r4, baseHeight, opening->height(),
+                              solidVertices);
+        } else {
+            const QLineF doorLine(segStart, segEnd + outward);
+            QPointF p1, p2, p3, p4;
+            buildQuadOnLine(doorLine,
+                            segStart,
+                            segEnd + outward,
+                            panelThickness,
+                            QPointF(),
+                            p1, p2, p3, p4);
+            appendBoxFromQuad(p1, p2, p3, p4, baseHeight, opening->height(),
+                              solidVertices);
+        }
         return;
     }
 
@@ -461,15 +659,17 @@ void View3DWidget::appendOpeningMesh(const WallItem *wall,
     qreal glassThickness = qMax(3.0, frameThickness * 0.25);
 
     if (opening->style() == OpeningItem::Style::BayWindow) {
-        const qreal bayDepth = qMax(12.0, wall->thickness() * 0.6);
+        const qreal bayDepth = qMax(25.0, wall->thickness() * 1.2);
         const qreal bayThickness = frameThickness + bayDepth;
         const QPointF bayShift = outward * (bayDepth * 0.5);
-        buildQuad(segStart, segEnd, bayThickness, bayShift, f1, f2, f3, f4);
+        buildQuadOnLine(segLine, segStart, segEnd, bayThickness, bayShift, f1,
+                        f2, f3, f4);
         appendBoxFromQuad(f1, f2, f3, f4, baseHeight, opening->height(),
                           solidVertices);
         glassShift = outward * (bayDepth * 0.75);
     } else {
-        buildQuad(segStart, segEnd, frameThickness, QPointF(), f1, f2, f3, f4);
+        buildQuadOnLine(segLine, segStart, segEnd, frameThickness, QPointF(),
+                        f1, f2, f3, f4);
         appendBoxFromQuad(f1, f2, f3, f4, baseHeight, opening->height(),
                           solidVertices);
         glassShift = QPointF();
@@ -489,34 +689,54 @@ void View3DWidget::appendOpeningMesh(const WallItem *wall,
         const QPointF leftEnd = segStart + segDir * panelWidth;
         const QPointF rightEnd = segEnd;
         const QPointF rightStart = segEnd - segDir * panelWidth;
-        const QPointF layerShift = outward * (frameThickness * 0.2);
+        const qreal layerDepth = qMax(8.0, frameThickness * 0.8);
+        const QPointF layerShift = outward * layerDepth;
 
         QPointF l1, l2, l3, l4;
-        buildQuad(leftStart + segDir * safeInset,
-                  leftEnd - segDir * safeInset,
-                  glassThickness,
-                  glassShift + layerShift,
-                  l1, l2, l3, l4);
+        buildQuadOnLine(segLine,
+                        leftStart + segDir * safeInset,
+                        leftEnd - segDir * safeInset,
+                        glassThickness,
+                        glassShift + layerShift,
+                        l1, l2, l3, l4);
         appendBoxFromQuad(l1, l2, l3, l4, baseHeight, opening->height(),
                           glassVertices);
 
         QPointF r1, r2, r3, r4;
-        buildQuad(rightStart + segDir * safeInset,
-                  rightEnd - segDir * safeInset,
-                  glassThickness,
-                  glassShift - layerShift,
-                  r1, r2, r3, r4);
+        buildQuadOnLine(segLine,
+                        rightStart + segDir * safeInset,
+                        rightEnd - segDir * safeInset,
+                        glassThickness,
+                        glassShift - layerShift,
+                        r1, r2, r3, r4);
         appendBoxFromQuad(r1, r2, r3, r4, baseHeight, opening->height(),
                           glassVertices);
         return;
     }
 
     QPointF g1, g2, g3, g4;
-    buildQuad(segStart + segDir * safeInset,
-              segEnd - segDir * safeInset,
-              glassThickness,
-              glassShift,
-              g1, g2, g3, g4);
+    if (opening->style() == OpeningItem::Style::CasementWindow) {
+        const qreal hingeOffset = qMax(2.0, frameThickness * 0.2);
+        const qreal openOffset = qMax(10.0, frameThickness * 1.1);
+        const QPointF gStart =
+            segStart + segDir * safeInset + outward * hingeOffset;
+        const QPointF gEnd =
+            segEnd - segDir * safeInset + outward * openOffset;
+        const QLineF glassLine(gStart, gEnd);
+        buildQuadOnLine(glassLine,
+                        gStart,
+                        gEnd,
+                        glassThickness,
+                        glassShift,
+                        g1, g2, g3, g4);
+    } else {
+        buildQuadOnLine(segLine,
+                        segStart + segDir * safeInset,
+                        segEnd - segDir * safeInset,
+                        glassThickness,
+                        glassShift,
+                        g1, g2, g3, g4);
+    }
     appendBoxFromQuad(g1, g2, g3, g4, baseHeight, opening->height(),
                       glassVertices);
 
@@ -526,11 +746,12 @@ void View3DWidget::appendOpeningMesh(const WallItem *wall,
         const QPointF barStart = segStart + segDir * barStartOffset;
         const QPointF barEnd = barStart + segDir * barWidth;
         QPointF b1, b2, b3, b4;
-        buildQuad(barStart,
-                  barEnd,
-                  frameThickness * 0.35,
-                  QPointF(),
-                  b1, b2, b3, b4);
+        buildQuadOnLine(segLine,
+                        barStart,
+                        barEnd,
+                        frameThickness * 0.35,
+                        QPointF(),
+                        b1, b2, b3, b4);
         appendBoxFromQuad(b1, b2, b3, b4, baseHeight, opening->height(),
                           solidVertices);
     }

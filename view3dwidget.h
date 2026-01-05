@@ -55,18 +55,33 @@ private:
     QOpenGLVertexArrayObject m_vao;
     QVector<QVector3D> m_vertices;
     QVector<QVector3D> m_wallVertices;
+    QVector<QVector3D> m_doorSingleVertices;
+    QVector<QVector3D> m_doorDoubleVertices;
+    QVector<QVector3D> m_doorSlidingVertices;
     QVector<QVector3D> m_openingVertices;
-    QVector<QVector3D> m_glassVertices;
+    QVector<QVector3D> m_glassCasementVertices;
+    QVector<QVector3D> m_glassSlidingVertices;
+    QVector<QVector3D> m_glassBayVertices;
     bool m_geometryDirty;
     int m_vertexCount;
     QMatrix4x4 m_projection;
     struct MeshRanges {
         int wallStart = 0;
         int wallCount = 0;
+        int doorSingleStart = 0;
+        int doorSingleCount = 0;
+        int doorDoubleStart = 0;
+        int doorDoubleCount = 0;
+        int doorSlidingStart = 0;
+        int doorSlidingCount = 0;
         int openingStart = 0;
         int openingCount = 0;
-        int glassStart = 0;
-        int glassCount = 0;
+        int glassCasementStart = 0;
+        int glassCasementCount = 0;
+        int glassSlidingStart = 0;
+        int glassSlidingCount = 0;
+        int glassBayStart = 0;
+        int glassBayCount = 0;
     } m_ranges;
 
     float m_distance;
