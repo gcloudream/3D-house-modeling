@@ -10,7 +10,9 @@
 #include <cmath>
 
 #include <QGraphicsItem>
+#include <QHash>
 #include <QLineF>
+#include <QMap>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QOpenGLShader>
@@ -25,6 +27,55 @@ constexpr float kMaxDistance = 200000.0f;
 constexpr float kRotateSpeed = 0.4f;
 constexpr float kPanSpeedFactor = 0.002f;
 constexpr float kZoomStep = 0.9f;
+constexpr float kFurnitureTintMix = 0.35f;
+constexpr float kAmbientStrength = 0.35f;
+
+QVector3D mixColor(const QVector3D &a, const QVector3D &b, float t)
+{
+    const float clamped = qBound(0.0f, t, 1.0f);
+    return a * (1.0f - clamped) + b * clamped;
+}
+
+QVector3D baseColorForMaterial(const QString &material)
+{
+    const QString key = material.toLower();
+    if (key == "metal") {
+        return QVector3D(0.62f, 0.64f, 0.70f);
+    }
+    if (key == "fabric") {
+        return QVector3D(0.78f, 0.73f, 0.66f);
+    }
+    if (key == "glass") {
+        return QVector3D(0.68f, 0.80f, 0.88f);
+    }
+    return QVector3D(0.70f, 0.55f, 0.34f);
+}
+
+QVector3D tintForKey(const QString &key)
+{
+    static const QVector<QVector3D> palette = {
+        QVector3D(0.72f, 0.76f, 0.82f),
+        QVector3D(0.48f, 0.62f, 0.78f),
+        QVector3D(0.66f, 0.62f, 0.54f),
+        QVector3D(0.55f, 0.68f, 0.62f),
+        QVector3D(0.70f, 0.58f, 0.52f),
+        QVector3D(0.58f, 0.64f, 0.74f),
+        QVector3D(0.62f, 0.72f, 0.80f),
+        QVector3D(0.52f, 0.52f, 0.60f),
+        QVector3D(0.76f, 0.70f, 0.56f)
+    };
+    const QString normalized = key.toLower();
+    const uint hash = qHash(normalized);
+    const int index = static_cast<int>(hash % palette.size());
+    return palette[index];
+}
+
+QVector3D furnitureColorFor(const QString &material, const QString &key)
+{
+    const QVector3D base = baseColorForMaterial(material);
+    const QVector3D tint = tintForKey(key);
+    return mixColor(base, tint, kFurnitureTintMix);
+}
 
 void appendBoxFromQuad(const QPointF &p1,
                        const QPointF &p2,
@@ -123,18 +174,30 @@ void View3DWidget::initializeGL()
         "#version 330 core\n"
         "layout(location = 0) in vec3 a_pos;\n"
         "uniform mat4 u_mvp;\n"
+        "out vec3 v_worldPos;\n"
         "void main() {\n"
+        "    v_worldPos = a_pos;\n"
         "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
         "}\n");
 
     m_program.addShaderFromSourceCode(
         QOpenGLShader::Fragment,
         "#version 330 core\n"
+        "in vec3 v_worldPos;\n"
         "out vec4 FragColor;\n"
         "uniform vec3 u_color;\n"
         "uniform float u_alpha;\n"
+        "uniform vec3 u_lightDir;\n"
+        "uniform vec3 u_lightColor;\n"
+        "uniform float u_ambient;\n"
         "void main() {\n"
-        "    FragColor = vec4(u_color, u_alpha);\n"
+        "    vec3 dx = dFdx(v_worldPos);\n"
+        "    vec3 dy = dFdy(v_worldPos);\n"
+        "    vec3 normal = normalize(cross(dx, dy));\n"
+        "    float diff = max(dot(normal, normalize(-u_lightDir)), 0.0);\n"
+        "    vec3 ambient = u_color * u_ambient;\n"
+        "    vec3 diffuse = u_color * u_lightColor * diff;\n"
+        "    FragColor = vec4(ambient + diffuse, u_alpha);\n"
         "}\n");
 
     m_program.link();
@@ -176,6 +239,10 @@ void View3DWidget::paintGL()
     m_program.bind();
     const QMatrix4x4 mvp = m_projection * viewMatrix();
     m_program.setUniformValue("u_mvp", mvp);
+    m_program.setUniformValue("u_lightDir",
+                              QVector3D(-0.35f, -1.0f, -0.25f).normalized());
+    m_program.setUniformValue("u_lightColor", QVector3D(0.95f, 0.97f, 1.0f));
+    m_program.setUniformValue("u_ambient", kAmbientStrength);
 
     QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
     if (m_ranges.wallCount > 0) {
@@ -247,28 +314,13 @@ void View3DWidget::paintGL()
         glDisable(GL_BLEND);
     }
 
-    if (m_ranges.furnitureWoodCount > 0) {
-        m_program.setUniformValue("u_color", QVector3D(0.70f, 0.50f, 0.30f));
-        m_program.setUniformValue("u_alpha", 1.0f);
-        glDrawArrays(GL_TRIANGLES,
-                     m_ranges.furnitureWoodStart,
-                     m_ranges.furnitureWoodCount);
-    }
-
-    if (m_ranges.furnitureMetalCount > 0) {
-        m_program.setUniformValue("u_color", QVector3D(0.50f, 0.50f, 0.50f));
-        m_program.setUniformValue("u_alpha", 1.0f);
-        glDrawArrays(GL_TRIANGLES,
-                     m_ranges.furnitureMetalStart,
-                     m_ranges.furnitureMetalCount);
-    }
-
-    if (m_ranges.furnitureFabricCount > 0) {
-        m_program.setUniformValue("u_color", QVector3D(0.90f, 0.85f, 0.70f));
-        m_program.setUniformValue("u_alpha", 1.0f);
-        glDrawArrays(GL_TRIANGLES,
-                     m_ranges.furnitureFabricStart,
-                     m_ranges.furnitureFabricCount);
+    for (const ColorRange &range : qAsConst(m_furnitureRanges)) {
+        if (range.count <= 0) {
+            continue;
+        }
+        m_program.setUniformValue("u_color", range.color);
+        m_program.setUniformValue("u_alpha", range.alpha);
+        glDrawArrays(GL_TRIANGLES, range.start, range.count);
     }
     m_program.release();
 }
@@ -351,9 +403,7 @@ void View3DWidget::rebuildGeometry()
     m_glassCasementVertices.clear();
     m_glassSlidingVertices.clear();
     m_glassBayVertices.clear();
-    m_furnitureWoodVertices.clear();
-    m_furnitureMetalVertices.clear();
-    m_furnitureFabricVertices.clear();
+    m_furnitureRanges.clear();
 
     if (!m_scene) {
         m_vertexCount = 0;
@@ -362,20 +412,30 @@ void View3DWidget::rebuildGeometry()
         return;
     }
 
+    QMap<QString, QVector<QVector3D>> furnitureBuckets;
+    QHash<QString, QVector3D> furnitureColors;
+
     const QList<QGraphicsItem *> items = m_scene->items();
     for (QGraphicsItem *item : items) {
         if (auto *wall = qgraphicsitem_cast<WallItem *>(item)) {
             appendWallMesh(wall, m_wallVertices);
             continue;
         }
-        if (auto *furniture = qgraphicsitem_cast<FurnitureItem *>(item)) {
-            const QString material = furniture->material().toLower();
-            if (material == "metal") {
-                appendFurnitureMesh(furniture, m_furnitureMetalVertices);
-            } else if (material == "fabric") {
-                appendFurnitureMesh(furniture, m_furnitureFabricVertices);
-            } else {
-                appendFurnitureMesh(furniture, m_furnitureWoodVertices);
+        if (auto *furniture = qgraphicsitem_cast<FurnitureItem *>(item)) {      
+            const AssetManager::Asset asset = furniture->asset();
+            QString key = asset.id.trimmed();
+            if (key.isEmpty()) {
+                key = asset.category.trimmed();
+            }
+            if (key.isEmpty()) {
+                key = QStringLiteral("furniture");
+            }
+            key = key.toLower();
+            QVector<QVector3D> &bucket = furnitureBuckets[key];
+            appendFurnitureMesh(furniture, bucket);
+            if (!furnitureColors.contains(key)) {
+                furnitureColors.insert(key,
+                                       furnitureColorFor(asset.material, key));
             }
         }
     }
@@ -401,16 +461,13 @@ void View3DWidget::rebuildGeometry()
     m_ranges.glassBayStart =
         m_ranges.glassSlidingStart + m_ranges.glassSlidingCount;
     m_ranges.glassBayCount = m_glassBayVertices.size();
-    m_ranges.furnitureWoodStart = m_ranges.glassBayStart + m_ranges.glassBayCount;
-    m_ranges.furnitureWoodCount = m_furnitureWoodVertices.size();
-    m_ranges.furnitureMetalStart =
-        m_ranges.furnitureWoodStart + m_ranges.furnitureWoodCount;
-    m_ranges.furnitureMetalCount = m_furnitureMetalVertices.size();
-    m_ranges.furnitureFabricStart =
-        m_ranges.furnitureMetalStart + m_ranges.furnitureMetalCount;
-    m_ranges.furnitureFabricCount = m_furnitureFabricVertices.size();
+    const int nonFurnitureCount = m_ranges.glassBayStart + m_ranges.glassBayCount;
+    int furnitureVertexTotal = 0;
+    for (auto it = furnitureBuckets.cbegin(); it != furnitureBuckets.cend(); ++it) {
+        furnitureVertexTotal += it.value().size();
+    }
 
-    m_vertices.reserve(m_ranges.furnitureFabricStart + m_ranges.furnitureFabricCount);
+    m_vertices.reserve(nonFurnitureCount + furnitureVertexTotal);
     m_vertices << m_wallVertices
                << m_doorSingleVertices
                << m_doorDoubleVertices
@@ -418,12 +475,26 @@ void View3DWidget::rebuildGeometry()
                << m_openingVertices
                << m_glassCasementVertices
                << m_glassSlidingVertices
-               << m_glassBayVertices
-               << m_furnitureWoodVertices
-               << m_furnitureMetalVertices
-               << m_furnitureFabricVertices;
+               << m_glassBayVertices;
 
-    m_vertexCount = m_vertices.size();
+    int cursor = nonFurnitureCount;
+    for (auto it = furnitureBuckets.cbegin(); it != furnitureBuckets.cend(); ++it) {
+        const QVector<QVector3D> &bucket = it.value();
+        if (bucket.isEmpty()) {
+            continue;
+        }
+        ColorRange range;
+        range.start = cursor;
+        range.count = bucket.size();
+        range.color = furnitureColors.value(it.key(),
+                                            QVector3D(0.60f, 0.60f, 0.60f));
+        range.alpha = 1.0f;
+        m_furnitureRanges.append(range);
+        m_vertices << bucket;
+        cursor += range.count;
+    }
+
+    m_vertexCount = cursor;
 
     QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
     m_vbo.bind();

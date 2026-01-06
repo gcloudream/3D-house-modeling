@@ -67,9 +67,13 @@ private:
     QVector<QVector3D> m_glassCasementVertices;
     QVector<QVector3D> m_glassSlidingVertices;
     QVector<QVector3D> m_glassBayVertices;
-    QVector<QVector3D> m_furnitureWoodVertices;
-    QVector<QVector3D> m_furnitureMetalVertices;
-    QVector<QVector3D> m_furnitureFabricVertices;
+    struct ColorRange {
+        int start = 0;
+        int count = 0;
+        QVector3D color;
+        float alpha = 1.0f;
+    };
+    QVector<ColorRange> m_furnitureRanges;
     bool m_geometryDirty;
     int m_vertexCount;
     QMatrix4x4 m_projection;
@@ -90,12 +94,6 @@ private:
         int glassSlidingCount = 0;
         int glassBayStart = 0;
         int glassBayCount = 0;
-        int furnitureWoodStart = 0;
-        int furnitureWoodCount = 0;
-        int furnitureMetalStart = 0;
-        int furnitureMetalCount = 0;
-        int furnitureFabricStart = 0;
-        int furnitureFabricCount = 0;
     } m_ranges;
 
     float m_distance;
