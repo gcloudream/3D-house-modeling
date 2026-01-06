@@ -7,6 +7,9 @@
 class BlueprintItem : public QGraphicsPixmapItem
 {
 public:
+    enum { Type = UserType + 4 };
+    int type() const override { return Type; }
+
     explicit BlueprintItem(const QPixmap &pixmap,
                            QGraphicsItem *parent = nullptr);
 

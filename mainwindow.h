@@ -9,6 +9,7 @@ class WallItem;
 class View3DWidget;
 class OpeningItem;
 class FurnitureItem;
+class BlueprintItem;
 class ComponentListWidget;
 class QLabel;
 class QListWidget;
@@ -47,6 +48,7 @@ private:
     WallItem *selectedWall() const;
     OpeningItem *selectedOpening() const;
     FurnitureItem *selectedFurniture() const;
+    BlueprintItem *selectedBlueprint() const;
 
     Ui::MainWindow *ui;
     DesignScene *m_scene;
@@ -59,10 +61,14 @@ private:
     ComponentListWidget *m_componentList;
     ComponentListWidget *m_furnitureList;
     QComboBox *m_furnitureCategory;
+    QGroupBox *m_blueprintGroup;
     QGroupBox *m_wallGroup;
     QGroupBox *m_openingGroup;
     QGroupBox *m_furnitureGroup;
     QLabel *m_nameValue;
+    QDoubleSpinBox *m_blueprintWidthSpin;
+    QDoubleSpinBox *m_blueprintLengthSpin;
+    QDoubleSpinBox *m_blueprintAngleSpin;
     QDoubleSpinBox *m_startXSpin;
     QDoubleSpinBox *m_startYSpin;
     QDoubleSpinBox *m_endXSpin;

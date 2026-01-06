@@ -2,6 +2,7 @@
 #include "ui_mainwindow.h"
 
 #include "assetmanager.h"
+#include "blueprintitem.h"
 #include "componentlistwidget.h"
 #include "designscene.h"
 #include "furnitureitem.h"
@@ -59,10 +60,14 @@ MainWindow::MainWindow(QWidget *parent)
     , m_componentList(nullptr)
     , m_furnitureList(nullptr)
     , m_furnitureCategory(nullptr)
+    , m_blueprintGroup(nullptr)
     , m_wallGroup(nullptr)
     , m_openingGroup(nullptr)
     , m_furnitureGroup(nullptr)
     , m_nameValue(nullptr)
+    , m_blueprintWidthSpin(nullptr)
+    , m_blueprintLengthSpin(nullptr)
+    , m_blueprintAngleSpin(nullptr)
     , m_startXSpin(nullptr)
     , m_startYSpin(nullptr)
     , m_endXSpin(nullptr)
@@ -303,6 +308,34 @@ void MainWindow::setupDocks()
     auto *propertiesLayout = new QVBoxLayout(propertiesWidget);
     propertiesLayout->setContentsMargins(10, 10, 10, 10);
 
+    m_blueprintGroup = new QGroupBox(tr("底图属性"), propertiesWidget);
+    auto *blueprintLayout = new QFormLayout(m_blueprintGroup);
+    m_blueprintWidthSpin = new QDoubleSpinBox(m_blueprintGroup);
+    m_blueprintLengthSpin = new QDoubleSpinBox(m_blueprintGroup);
+    m_blueprintAngleSpin = new QDoubleSpinBox(m_blueprintGroup);
+
+    for (QDoubleSpinBox *spin : {m_blueprintWidthSpin, m_blueprintLengthSpin}) {
+        spin->setRange(1.0, 1000000.0);
+        spin->setDecimals(0);
+        spin->setSuffix(" mm");
+        spin->setEnabled(false);
+    }
+
+    m_blueprintAngleSpin->setRange(0.0, 360.0);
+    m_blueprintAngleSpin->setDecimals(1);
+    m_blueprintAngleSpin->setSuffix(" 度");
+    m_blueprintAngleSpin->setEnabled(false);
+
+    m_blueprintOpacitySlider = new QSlider(Qt::Horizontal, m_blueprintGroup);
+    m_blueprintOpacitySlider->setRange(0, 100);
+    m_blueprintOpacitySlider->setValue(60);
+    m_blueprintOpacitySlider->setEnabled(false);
+
+    blueprintLayout->addRow(tr("宽度"), m_blueprintWidthSpin);
+    blueprintLayout->addRow(tr("长度"), m_blueprintLengthSpin);
+    blueprintLayout->addRow(tr("角度"), m_blueprintAngleSpin);
+    blueprintLayout->addRow(tr("透明度"), m_blueprintOpacitySlider);
+
     m_wallGroup = new QGroupBox(tr("墙体属性"), propertiesWidget);
     auto *wallLayout = new QFormLayout(m_wallGroup);
     m_nameValue = new QLabel("-", m_wallGroup);
@@ -355,12 +388,6 @@ void MainWindow::setupDocks()
     wallLayout->addRow(tr("角度"), m_angleSpin);
     wallLayout->addRow(tr("高度"), m_heightSpin);
     wallLayout->addRow(tr("厚度"), m_thicknessSpin);
-
-    m_blueprintOpacitySlider = new QSlider(Qt::Horizontal, m_wallGroup);
-    m_blueprintOpacitySlider->setRange(0, 100);
-    m_blueprintOpacitySlider->setValue(60);
-    m_blueprintOpacitySlider->setEnabled(false);
-    wallLayout->addRow(tr("底图透明度"), m_blueprintOpacitySlider);
 
     m_openingGroup = new QGroupBox(tr("门窗属性"), propertiesWidget);
     auto *openingLayout = new QFormLayout(m_openingGroup);
@@ -419,10 +446,12 @@ void MainWindow::setupDocks()
     furnitureLayout->addRow(tr("离地"), m_furnitureElevationSpin);
     furnitureLayout->addRow(tr("角度"), m_furnitureRotationSpin);
 
+    propertiesLayout->addWidget(m_blueprintGroup);
     propertiesLayout->addWidget(m_wallGroup);
     propertiesLayout->addWidget(m_openingGroup);
     propertiesLayout->addWidget(m_furnitureGroup);
     propertiesLayout->addStretch();
+    m_blueprintGroup->setVisible(false);
     m_openingGroup->setVisible(false);
     m_furnitureGroup->setVisible(false);
 
@@ -672,6 +701,47 @@ void MainWindow::connectSignals()
                 m_scene->setBlueprintOpacity(value / 100.0);
             });
 
+    connect(m_blueprintWidthSpin,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+                BlueprintItem *blueprint = selectedBlueprint();
+                if (!blueprint) {
+                    return;
+                }
+                const QPixmap pixmap = blueprint->pixmap();
+                if (pixmap.isNull() || pixmap.width() <= 0) {
+                    return;
+                }
+                blueprint->setScale(value / pixmap.width());
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_blueprintLengthSpin,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+                BlueprintItem *blueprint = selectedBlueprint();
+                if (!blueprint) {
+                    return;
+                }
+                const QPixmap pixmap = blueprint->pixmap();
+                if (pixmap.isNull() || pixmap.height() <= 0) {
+                    return;
+                }
+                blueprint->setScale(value / pixmap.height());
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_blueprintAngleSpin,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+                BlueprintItem *blueprint = selectedBlueprint();
+                if (!blueprint) {
+                    return;
+                }
+                blueprint->setRotation(value);
+                m_scene->notifySceneChanged();
+            });
+
     connect(m_lengthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
             [this](double value) {
                 WallItem *wall = selectedWall();
@@ -906,6 +976,7 @@ void MainWindow::updateSelectionDetails()
     OpeningItem *opening = selectedOpening();
     FurnitureItem *furniture = selectedFurniture();
     WallItem *wall = selectedWall();
+    BlueprintItem *blueprint = selectedBlueprint();
 
     // ✅ 优先级处理：
     // 1. 家具优先级最高（独立对象）
@@ -913,9 +984,13 @@ void MainWindow::updateSelectionDetails()
     if (wall && opening) {
         opening = nullptr;
     }
+    if ((wall || opening || furniture) && blueprint) {
+        blueprint = nullptr;
+    }
 
     // ✅ 按优先级检查：家具 > 门窗 > 墙体
     if (furniture) {
+        m_blueprintGroup->setVisible(false);
         m_wallGroup->setVisible(false);
         m_openingGroup->setVisible(false);
         m_furnitureGroup->setVisible(true);
@@ -948,6 +1023,7 @@ void MainWindow::updateSelectionDetails()
     }
 
     if (opening) {
+        m_blueprintGroup->setVisible(false);
         m_wallGroup->setVisible(false);
         m_openingGroup->setVisible(true);
         m_furnitureGroup->setVisible(false);
@@ -975,7 +1051,38 @@ void MainWindow::updateSelectionDetails()
         return;
     }
 
+    if (blueprint) {
+        m_blueprintGroup->setVisible(true);
+        m_wallGroup->setVisible(false);
+        m_openingGroup->setVisible(false);
+        m_furnitureGroup->setVisible(false);
+
+        if (m_deleteAction) {
+            m_deleteAction->setEnabled(false);
+        }
+
+        m_blueprintWidthSpin->setEnabled(true);
+        m_blueprintLengthSpin->setEnabled(true);
+        m_blueprintAngleSpin->setEnabled(true);
+        m_blueprintOpacitySlider->setEnabled(true);
+
+        QSignalBlocker blockWidth(m_blueprintWidthSpin);
+        QSignalBlocker blockLength(m_blueprintLengthSpin);
+        QSignalBlocker blockAngle(m_blueprintAngleSpin);
+        QSignalBlocker blockOpacity(m_blueprintOpacitySlider);
+        const QPixmap pixmap = blueprint->pixmap();
+        const qreal scale = blueprint->scale();
+        const qreal width = pixmap.isNull() ? 0.0 : pixmap.width() * scale;
+        const qreal length = pixmap.isNull() ? 0.0 : pixmap.height() * scale;
+        m_blueprintWidthSpin->setValue(width);
+        m_blueprintLengthSpin->setValue(length);
+        m_blueprintAngleSpin->setValue(blueprint->rotation());
+        m_blueprintOpacitySlider->setValue(qRound(blueprint->opacity() * 100.0));
+        return;
+    }
+
     if (furniture) {
+        m_blueprintGroup->setVisible(false);
         m_wallGroup->setVisible(false);
         m_openingGroup->setVisible(false);
         m_furnitureGroup->setVisible(true);
@@ -1008,6 +1115,7 @@ void MainWindow::updateSelectionDetails()
     }
 
     m_openingGroup->setVisible(false);
+    m_blueprintGroup->setVisible(false);
     m_wallGroup->setVisible(true);
     m_furnitureGroup->setVisible(false);
 
@@ -1016,6 +1124,10 @@ void MainWindow::updateSelectionDetails()
         if (m_deleteAction) {
             m_deleteAction->setEnabled(false);
         }
+        m_blueprintWidthSpin->setEnabled(false);
+        m_blueprintLengthSpin->setEnabled(false);
+        m_blueprintAngleSpin->setEnabled(false);
+        m_blueprintOpacitySlider->setEnabled(false);
         m_startXSpin->setEnabled(false);
         m_startYSpin->setEnabled(false);
         m_endXSpin->setEnabled(false);
@@ -1038,6 +1150,10 @@ void MainWindow::updateSelectionDetails()
         QSignalBlocker blockAngle(m_angleSpin);
         QSignalBlocker blockHeight(m_heightSpin);
         QSignalBlocker blockThickness(m_thicknessSpin);
+        QSignalBlocker blockBlueprintWidth(m_blueprintWidthSpin);
+        QSignalBlocker blockBlueprintLength(m_blueprintLengthSpin);
+        QSignalBlocker blockBlueprintAngle(m_blueprintAngleSpin);
+        QSignalBlocker blockBlueprintOpacity(m_blueprintOpacitySlider);
         QSignalBlocker blockFurnitureWidth(m_furnitureWidthSpin);
         QSignalBlocker blockFurnitureDepth(m_furnitureDepthSpin);
         QSignalBlocker blockFurnitureHeight(m_furnitureHeightSpin);
@@ -1051,6 +1167,10 @@ void MainWindow::updateSelectionDetails()
         m_angleSpin->setValue(0.0);
         m_heightSpin->setValue(0.0);
         m_thicknessSpin->setValue(0.0);
+        m_blueprintWidthSpin->setValue(0.0);
+        m_blueprintLengthSpin->setValue(0.0);
+        m_blueprintAngleSpin->setValue(0.0);
+        m_blueprintOpacitySlider->setValue(0);
         m_furnitureNameValue->setText("-");
         m_furnitureWidthSpin->setValue(0.0);
         m_furnitureDepthSpin->setValue(0.0);
@@ -1167,6 +1287,18 @@ FurnitureItem *MainWindow::selectedFurniture() const
         FurnitureItem *furniture = qgraphicsitem_cast<FurnitureItem *>(item);
         if (furniture) {
             return furniture;
+        }
+    }
+    return nullptr;
+}
+
+BlueprintItem *MainWindow::selectedBlueprint() const
+{
+    const QList<QGraphicsItem *> items = m_scene->selectedItems();
+    for (QGraphicsItem *item : items) {
+        BlueprintItem *blueprint = qgraphicsitem_cast<BlueprintItem *>(item);
+        if (blueprint) {
+            return blueprint;
         }
     }
     return nullptr;

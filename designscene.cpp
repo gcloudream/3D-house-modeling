@@ -122,6 +122,7 @@ bool DesignScene::setBlueprintPixmap(const QPixmap &pixmap)
     m_blueprintItem->setOffset(-pixmap.width() / 2.0, -pixmap.height() / 2.0);
     m_blueprintItem->setTransformOriginPoint(0.0, 0.0);
     m_blueprintItem->setPos(0.0, 0.0);
+    m_blueprintItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
     return true;
 }
 
