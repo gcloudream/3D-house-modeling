@@ -16,7 +16,7 @@ public:
 
     WallItem(const QPointF &start,
              const QPointF &end,
-             qreal thickness = 40.0,
+             qreal thickness = 30.0,
              qreal height = 200.0,
              QGraphicsItem *parent = nullptr);
 

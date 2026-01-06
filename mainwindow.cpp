@@ -368,7 +368,7 @@ void MainWindow::setupDocks()
     m_thicknessSpin->setRange(10.0, 1000.0);
     m_thicknessSpin->setDecimals(0);
     m_thicknessSpin->setSuffix(" mm");
-    m_thicknessSpin->setValue(40.0);
+    m_thicknessSpin->setValue(30.0);
 
     m_angleSpin->setRange(0.0, 360.0);
     m_angleSpin->setDecimals(1);
@@ -661,6 +661,10 @@ void MainWindow::setupPreview3D()
     addDockWidget(Qt::RightDockWidgetArea, m_previewDock);
     m_previewDock->setFloating(true);
     m_previewDock->resize(360, 240);
+    auto *viewMenu = menuBar()->addMenu(tr("视图"));
+    auto *previewToggleAction = m_previewDock->toggleViewAction();
+    previewToggleAction->setText(tr("3D 预览"));
+    viewMenu->addAction(previewToggleAction);
 
     QTimer::singleShot(0, this, [this]() {
         if (!m_previewDock) {

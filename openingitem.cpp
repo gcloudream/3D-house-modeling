@@ -14,7 +14,7 @@
 namespace {
 constexpr qreal kHandleRadius = 5.0;
 constexpr qreal kHandleOffset = 12.0;
-constexpr qreal kDefaultThickness = 40.0;
+constexpr qreal kDefaultThickness = 30.0;
 }
 
 OpeningItem::OpeningItem(Kind kind,
