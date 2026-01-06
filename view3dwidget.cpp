@@ -1,6 +1,8 @@
 #include "view3dwidget.h"
 
 #include "designscene.h"
+#include "furnitureitem.h"
+#include "modelcache.h"
 #include "openingitem.h"
 #include "wallitem.h"
 
@@ -244,6 +246,30 @@ void View3DWidget::paintGL()
 
         glDisable(GL_BLEND);
     }
+
+    if (m_ranges.furnitureWoodCount > 0) {
+        m_program.setUniformValue("u_color", QVector3D(0.70f, 0.50f, 0.30f));
+        m_program.setUniformValue("u_alpha", 1.0f);
+        glDrawArrays(GL_TRIANGLES,
+                     m_ranges.furnitureWoodStart,
+                     m_ranges.furnitureWoodCount);
+    }
+
+    if (m_ranges.furnitureMetalCount > 0) {
+        m_program.setUniformValue("u_color", QVector3D(0.50f, 0.50f, 0.50f));
+        m_program.setUniformValue("u_alpha", 1.0f);
+        glDrawArrays(GL_TRIANGLES,
+                     m_ranges.furnitureMetalStart,
+                     m_ranges.furnitureMetalCount);
+    }
+
+    if (m_ranges.furnitureFabricCount > 0) {
+        m_program.setUniformValue("u_color", QVector3D(0.90f, 0.85f, 0.70f));
+        m_program.setUniformValue("u_alpha", 1.0f);
+        glDrawArrays(GL_TRIANGLES,
+                     m_ranges.furnitureFabricStart,
+                     m_ranges.furnitureFabricCount);
+    }
     m_program.release();
 }
 
@@ -325,6 +351,9 @@ void View3DWidget::rebuildGeometry()
     m_glassCasementVertices.clear();
     m_glassSlidingVertices.clear();
     m_glassBayVertices.clear();
+    m_furnitureWoodVertices.clear();
+    m_furnitureMetalVertices.clear();
+    m_furnitureFabricVertices.clear();
 
     if (!m_scene) {
         m_vertexCount = 0;
@@ -335,11 +364,20 @@ void View3DWidget::rebuildGeometry()
 
     const QList<QGraphicsItem *> items = m_scene->items();
     for (QGraphicsItem *item : items) {
-        auto *wall = qgraphicsitem_cast<WallItem *>(item);
-        if (!wall) {
+        if (auto *wall = qgraphicsitem_cast<WallItem *>(item)) {
+            appendWallMesh(wall, m_wallVertices);
             continue;
         }
-        appendWallMesh(wall, m_wallVertices);
+        if (auto *furniture = qgraphicsitem_cast<FurnitureItem *>(item)) {
+            const QString material = furniture->material().toLower();
+            if (material == "metal") {
+                appendFurnitureMesh(furniture, m_furnitureMetalVertices);
+            } else if (material == "fabric") {
+                appendFurnitureMesh(furniture, m_furnitureFabricVertices);
+            } else {
+                appendFurnitureMesh(furniture, m_furnitureWoodVertices);
+            }
+        }
     }
 
     m_ranges.wallStart = 0;
@@ -363,8 +401,16 @@ void View3DWidget::rebuildGeometry()
     m_ranges.glassBayStart =
         m_ranges.glassSlidingStart + m_ranges.glassSlidingCount;
     m_ranges.glassBayCount = m_glassBayVertices.size();
+    m_ranges.furnitureWoodStart = m_ranges.glassBayStart + m_ranges.glassBayCount;
+    m_ranges.furnitureWoodCount = m_furnitureWoodVertices.size();
+    m_ranges.furnitureMetalStart =
+        m_ranges.furnitureWoodStart + m_ranges.furnitureWoodCount;
+    m_ranges.furnitureMetalCount = m_furnitureMetalVertices.size();
+    m_ranges.furnitureFabricStart =
+        m_ranges.furnitureMetalStart + m_ranges.furnitureMetalCount;
+    m_ranges.furnitureFabricCount = m_furnitureFabricVertices.size();
 
-    m_vertices.reserve(m_ranges.glassBayStart + m_ranges.glassBayCount);
+    m_vertices.reserve(m_ranges.furnitureFabricStart + m_ranges.furnitureFabricCount);
     m_vertices << m_wallVertices
                << m_doorSingleVertices
                << m_doorDoubleVertices
@@ -372,7 +418,10 @@ void View3DWidget::rebuildGeometry()
                << m_openingVertices
                << m_glassCasementVertices
                << m_glassSlidingVertices
-               << m_glassBayVertices;
+               << m_glassBayVertices
+               << m_furnitureWoodVertices
+               << m_furnitureMetalVertices
+               << m_furnitureFabricVertices;
 
     m_vertexCount = m_vertices.size();
 
@@ -775,6 +824,31 @@ void View3DWidget::appendOpeningMesh(const WallItem *wall,
                         b1, b2, b3, b4);
         appendBoxFromQuad(b1, b2, b3, b4, baseHeight, opening->height(),
                           solidVertices);
+    }
+}
+
+void View3DWidget::appendFurnitureMesh(const FurnitureItem *item,
+                                       QVector<QVector3D> &vertices) const
+{
+    if (!item) {
+        return;
+    }
+
+    const AssetManager::Asset asset = item->asset();
+    QSharedPointer<MeshData> mesh = ModelCache::instance()->getModel(asset.modelPath);
+    if (!mesh || mesh->vertices.isEmpty()) {
+        return;
+    }
+
+    const QVector3D modelSize = mesh->size();
+    const QVector3D scale = item->modelScale(modelSize);
+    QMatrix4x4 transform = item->transformMatrix();
+    transform.scale(scale.x(), scale.y(), scale.z());
+
+    const QVector3D pivot = mesh->pivotOffset();
+    vertices.reserve(vertices.size() + mesh->vertices.size());
+    for (const QVector3D &v : mesh->vertices) {
+        vertices.append(transform * (v + pivot));
     }
 }
 

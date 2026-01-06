@@ -1,0 +1,132 @@
+﻿[
+  {
+    "id": "sofa_lounge",
+    "name": "双人沙发",
+    "category": "living_room",
+    "svg": "icons/furniture/sofa.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/loungeSofa.glb",
+    "defaultSize": [180, 80, 80],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "fabric"
+  },
+  {
+    "id": "sofa_long",
+    "name": "长沙发",
+    "category": "living_room",
+    "svg": "icons/furniture/sofa.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/loungeSofaLong.glb",
+    "defaultSize": [240, 80, 80],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "fabric"
+  },
+  {
+    "id": "coffee_table",
+    "name": "茶几",
+    "category": "living_room",
+    "svg": "icons/furniture/table.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/tableCoffee.glb",
+    "defaultSize": [100, 60, 45],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "wood"
+  },
+  {
+    "id": "tv_cabinet",
+    "name": "电视柜",
+    "category": "living_room",
+    "svg": "icons/furniture/cabinet.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/cabinetTelevision.glb",
+    "defaultSize": [160, 40, 50],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "wood"
+  },
+  {
+    "id": "bed_single",
+    "name": "单人床",
+    "category": "bedroom",
+    "svg": "icons/furniture/bed.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/bedSingle.glb",
+    "defaultSize": [100, 200, 50],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "fabric"
+  },
+  {
+    "id": "bed_double",
+    "name": "双人床",
+    "category": "bedroom",
+    "svg": "icons/furniture/bed.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/bedDouble.glb",
+    "defaultSize": [180, 200, 50],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "fabric"
+  },
+  {
+    "id": "bookcase_open",
+    "name": "书架",
+    "category": "study",
+    "svg": "icons/furniture/bookcase.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/bookcaseOpen.glb",
+    "defaultSize": [80, 30, 180],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "wood"
+  },
+  {
+    "id": "desk",
+    "name": "书桌",
+    "category": "study",
+    "svg": "icons/furniture/table.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/desk.glb",
+    "defaultSize": [120, 60, 75],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "wood"
+  },
+  {
+    "id": "desk_chair",
+    "name": "办公椅",
+    "category": "study",
+    "svg": "icons/furniture/chair.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/chairDesk.glb",
+    "defaultSize": [52, 52, 90],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "fabric"
+  },
+  {
+    "id": "kitchen_cabinet",
+    "name": "厨房地柜",
+    "category": "kitchen",
+    "svg": "icons/furniture/cabinet.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/kitchenCabinet.glb",
+    "defaultSize": [60, 60, 85],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "wood"
+  },
+  {
+    "id": "kitchen_sink",
+    "name": "厨房水槽",
+    "category": "kitchen",
+    "svg": "icons/furniture/sink.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/kitchenSink.glb",
+    "defaultSize": [60, 60, 85],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "metal"
+  },
+  {
+    "id": "bathtub",
+    "name": "浴缸",
+    "category": "bathroom",
+    "svg": "icons/furniture/bathtub.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/bathtub.glb",
+    "defaultSize": [170, 80, 60],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "metal"
+  },
+  {
+    "id": "bathroom_sink",
+    "name": "浴室洗手台",
+    "category": "bathroom",
+    "svg": "icons/furniture/sink.svg",
+    "model": "models/furniture/kenney/kenney_furniture-kit/Models/GLTF format/bathroomSink.glb",
+    "defaultSize": [60, 50, 85],
+    "scale": [1.0, 1.0, 1.0],
+    "material": "metal"
+  }
+]

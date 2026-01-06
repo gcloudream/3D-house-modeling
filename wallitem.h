@@ -11,6 +11,9 @@ class OpeningItem;
 class WallItem : public QGraphicsPolygonItem
 {
 public:
+    enum { Type = UserType + 1 };
+    int type() const override { return Type; }
+
     WallItem(const QPointF &start,
              const QPointF &end,
              qreal thickness = 40.0,

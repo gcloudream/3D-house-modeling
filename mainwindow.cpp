@@ -1,8 +1,10 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
+#include "assetmanager.h"
 #include "componentlistwidget.h"
 #include "designscene.h"
+#include "furnitureitem.h"
 #include "openingitem.h"
 #include "view2dwidget.h"
 #include "view3dwidget.h"
@@ -10,6 +12,7 @@
 
 #include <QActionGroup>
 #include <QAction>
+#include <QComboBox>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -54,8 +57,11 @@ MainWindow::MainWindow(QWidget *parent)
     , m_zoomLabel(nullptr)
     , m_hintLabel(nullptr)
     , m_componentList(nullptr)
+    , m_furnitureList(nullptr)
+    , m_furnitureCategory(nullptr)
     , m_wallGroup(nullptr)
     , m_openingGroup(nullptr)
+    , m_furnitureGroup(nullptr)
     , m_nameValue(nullptr)
     , m_startXSpin(nullptr)
     , m_startYSpin(nullptr)
@@ -70,6 +76,12 @@ MainWindow::MainWindow(QWidget *parent)
     , m_openingHeightSpin(nullptr)
     , m_openingSillSpin(nullptr)
     , m_openingOffsetSpin(nullptr)
+    , m_furnitureNameValue(nullptr)
+    , m_furnitureWidthSpin(nullptr)
+    , m_furnitureDepthSpin(nullptr)
+    , m_furnitureHeightSpin(nullptr)
+    , m_furnitureElevationSpin(nullptr)
+    , m_furnitureRotationSpin(nullptr)
     , m_blueprintOpacitySlider(nullptr)
     , m_selectAction(nullptr)
     , m_drawWallAction(nullptr)
@@ -92,6 +104,12 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    // Disconnect all signals from m_scene before destruction
+    // to prevent accessing destroyed objects during cleanup
+    if (m_scene) {
+        disconnect(m_scene, nullptr, this, nullptr);
+    }
+
     delete ui;
 }
 
@@ -144,9 +162,10 @@ void MainWindow::setupDocks()
         obj["height"] = height;
         obj["sill"] = sill;
         QListWidgetItem *item =
-            new QListWidgetItem(QIcon(iconPath), text, m_componentList);
+            new QListWidgetItem(QIcon(iconPath), text, m_componentList);        
         item->setData(Qt::UserRole,
-                      QJsonDocument(obj).toJson(QJsonDocument::Compact));
+                      QJsonDocument(obj).toJson(QJsonDocument::Compact));       
+        item->setData(Qt::UserRole + 1, ComponentListWidget::openingMimeType());
     };
 
     addHeader(tr("墙体"));
@@ -171,15 +190,112 @@ void MainWindow::setupDocks()
     addOpeningItem(tr("飘窗 100x100"), "window", "bay", 100, 100, 50,
                    ":/icons/window_bay.svg");
 
-    addHeader(tr("家具"));
-    auto *furnitureTip = new QListWidgetItem(tr("家具系统待开启"), m_componentList);
-    furnitureTip->setFlags(Qt::ItemIsEnabled);
-    furnitureTip->setForeground(QColor(121, 133, 147));
-    furnitureTip->setData(Qt::UserRole, QByteArray());
+    auto *libraryWidget = new QWidget(libraryDock);
+    auto *libraryLayout = new QVBoxLayout(libraryWidget);
+    libraryLayout->setContentsMargins(8, 8, 8, 8);
+    libraryLayout->setSpacing(8);
+    libraryLayout->addWidget(m_componentList);
 
-    libraryDock->setWidget(m_componentList);
+    auto *furnitureLabel = new QLabel(tr("家具库"), libraryWidget);
+    QFont headerFont = furnitureLabel->font();
+    headerFont.setBold(true);
+    furnitureLabel->setFont(headerFont);
+    furnitureLabel->setStyleSheet("color: #2F6E8F;");
+    libraryLayout->addWidget(furnitureLabel);
+
+    m_furnitureCategory = new QComboBox(libraryWidget);
+    m_furnitureCategory->setObjectName("furnitureCategory");
+    libraryLayout->addWidget(m_furnitureCategory);
+
+    m_furnitureList = new ComponentListWidget(libraryWidget);
+    m_furnitureList->setObjectName("furnitureList");
+    m_furnitureList->setSpacing(4);
+    m_furnitureList->setIconSize(QSize(26, 26));
+    libraryLayout->addWidget(m_furnitureList, 1);
+
+    libraryDock->setWidget(libraryWidget);
     libraryDock->setMinimumWidth(200);
     addDockWidget(Qt::LeftDockWidgetArea, libraryDock);
+
+    QString assetError;
+    const QString catalogPath = AssetManager::defaultCatalogPath();
+    if (!AssetManager::instance()->loadAssets(catalogPath, &assetError)) {
+        QMessageBox::warning(this,
+                             tr("资源加载失败"),
+                             tr("无法加载家具 catalog：%1").arg(assetError));
+    }
+
+    auto categoryLabel = [](const QString &category) {
+        if (category == "living_room") {
+            return QObject::tr("客厅");
+        }
+        if (category == "bedroom") {
+            return QObject::tr("卧室");
+        }
+        if (category == "kitchen") {
+            return QObject::tr("厨房");
+        }
+        if (category == "bathroom") {
+            return QObject::tr("卫生间");
+        }
+        if (category == "study") {
+            return QObject::tr("书房");
+        }
+        return category;
+    };
+
+    if (m_furnitureCategory) {
+        m_furnitureCategory->addItem(tr("全部"), QString());
+        const QStringList categories = AssetManager::instance()->categories();
+        for (const QString &category : categories) {
+            m_furnitureCategory->addItem(categoryLabel(category), category);
+        }
+    }
+
+    auto populateFurniture = [this](const QString &categoryId) {
+        if (!m_furnitureList) {
+            return;
+        }
+        m_furnitureList->clear();
+
+        QList<AssetManager::Asset> assets;
+        if (categoryId.isEmpty()) {
+            const QStringList categories = AssetManager::instance()->categories();
+            for (const QString &category : categories) {
+                assets.append(AssetManager::instance()->getAssetsByCategory(category));
+            }
+        } else {
+            assets = AssetManager::instance()->getAssetsByCategory(categoryId);
+        }
+
+        for (const AssetManager::Asset &asset : assets) {
+            QListWidgetItem *item =
+                new QListWidgetItem(QIcon(asset.svgPath), asset.name, m_furnitureList);
+            QJsonObject obj;
+            obj["assetId"] = asset.id;
+            item->setData(Qt::UserRole,
+                          QJsonDocument(obj).toJson(QJsonDocument::Compact));
+            item->setData(Qt::UserRole + 1, ComponentListWidget::furnitureMimeType());
+            item->setToolTip(
+                tr("%1 x %2 x %3 mm")
+                    .arg(asset.defaultSize.x(), 0, 'f', 0)
+                    .arg(asset.defaultSize.y(), 0, 'f', 0)
+                    .arg(asset.defaultSize.z(), 0, 'f', 0));
+        }
+    };
+
+    if (m_furnitureCategory) {
+        connect(m_furnitureCategory,
+                qOverload<int>(&QComboBox::currentIndexChanged),
+                this,
+                [this, populateFurniture](int index) {
+                    const QString categoryId =
+                        m_furnitureCategory->itemData(index).toString();
+                    populateFurniture(categoryId);
+                });
+    }
+
+    populateFurniture(QString());
 
     auto *propertiesDock = new QDockWidget(tr("属性面板"), this);
     propertiesDock->setObjectName("propertiesDock");
@@ -272,10 +388,43 @@ void MainWindow::setupDocks()
     openingLayout->addRow(tr("离地"), m_openingSillSpin);
     openingLayout->addRow(tr("距起点"), m_openingOffsetSpin);
 
+    m_furnitureGroup = new QGroupBox(tr("家具属性"), propertiesWidget);
+    auto *furnitureLayout = new QFormLayout(m_furnitureGroup);
+    m_furnitureNameValue = new QLabel("-", m_furnitureGroup);
+    m_furnitureWidthSpin = new QDoubleSpinBox(m_furnitureGroup);
+    m_furnitureDepthSpin = new QDoubleSpinBox(m_furnitureGroup);
+    m_furnitureHeightSpin = new QDoubleSpinBox(m_furnitureGroup);
+    m_furnitureElevationSpin = new QDoubleSpinBox(m_furnitureGroup);
+    m_furnitureRotationSpin = new QDoubleSpinBox(m_furnitureGroup);
+
+    for (QDoubleSpinBox *spin : {m_furnitureWidthSpin,
+                                 m_furnitureDepthSpin,
+                                 m_furnitureHeightSpin,
+                                 m_furnitureElevationSpin}) {
+        spin->setRange(10.0, 20000.0);
+        spin->setDecimals(0);
+        spin->setSuffix(" mm");
+        spin->setEnabled(false);
+    }
+
+    m_furnitureRotationSpin->setRange(0.0, 360.0);
+    m_furnitureRotationSpin->setDecimals(1);
+    m_furnitureRotationSpin->setSuffix(" 度");
+    m_furnitureRotationSpin->setEnabled(false);
+
+    furnitureLayout->addRow(tr("名称"), m_furnitureNameValue);
+    furnitureLayout->addRow(tr("宽度"), m_furnitureWidthSpin);
+    furnitureLayout->addRow(tr("深度"), m_furnitureDepthSpin);
+    furnitureLayout->addRow(tr("高度"), m_furnitureHeightSpin);
+    furnitureLayout->addRow(tr("离地"), m_furnitureElevationSpin);
+    furnitureLayout->addRow(tr("角度"), m_furnitureRotationSpin);
+
     propertiesLayout->addWidget(m_wallGroup);
     propertiesLayout->addWidget(m_openingGroup);
+    propertiesLayout->addWidget(m_furnitureGroup);
     propertiesLayout->addStretch();
     m_openingGroup->setVisible(false);
+    m_furnitureGroup->setVisible(false);
 
     propertiesDock->setWidget(propertiesWidget);
     propertiesDock->setMinimumWidth(240);
@@ -378,6 +527,13 @@ void MainWindow::setupToolbar()
                 removed = true;
                 continue;
             }
+            auto *furniture = qgraphicsitem_cast<FurnitureItem *>(item);
+            if (furniture) {
+                m_scene->removeItem(furniture);
+                delete furniture;
+                removed = true;
+                continue;
+            }
             auto *wall = qgraphicsitem_cast<WallItem *>(item);
             if (!wall) {
                 continue;
@@ -395,8 +551,10 @@ void MainWindow::setupToolbar()
             removed = true;
         }
         if (!removed) {
-            QMessageBox::information(this, tr("提示"), tr("请先选择墙体或门窗。"));
+            QMessageBox::information(this, tr("提示"), tr("请先选择墙体、门窗或家具。"));
         }
+        // ✅ 删除后先清除选择，再通知场景变化
+        m_scene->clearSelection();
         m_scene->notifySceneChanged();
         updateSelectionDetails();
     });
@@ -658,6 +816,62 @@ void MainWindow::connectSignals()
                 opening->setDistanceFromStart(value);
                 m_scene->notifySceneChanged();
             });
+
+    connect(m_furnitureWidthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double value) {
+                FurnitureItem *furniture = selectedFurniture();
+                if (!furniture) {
+                    return;
+                }
+                QSizeF size = furniture->size2D();
+                size.setWidth(value);
+                furniture->setSize2D(size);
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_furnitureDepthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double value) {
+                FurnitureItem *furniture = selectedFurniture();
+                if (!furniture) {
+                    return;
+                }
+                QSizeF size = furniture->size2D();
+                size.setHeight(value);
+                furniture->setSize2D(size);
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_furnitureHeightSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double value) {
+                FurnitureItem *furniture = selectedFurniture();
+                if (!furniture) {
+                    return;
+                }
+                furniture->setHeight3D(value);
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_furnitureElevationSpin,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+                FurnitureItem *furniture = selectedFurniture();
+                if (!furniture) {
+                    return;
+                }
+                furniture->setElevation(value);
+                m_scene->notifySceneChanged();
+            });
+
+    connect(m_furnitureRotationSpin,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+                FurnitureItem *furniture = selectedFurniture();
+                if (!furniture) {
+                    return;
+                }
+                furniture->setRotationDegrees(value);
+                m_scene->notifySceneChanged();
+            });
 }
 
 void MainWindow::importBlueprint()
@@ -690,11 +904,53 @@ void MainWindow::importBlueprint()
 void MainWindow::updateSelectionDetails()
 {
     OpeningItem *opening = selectedOpening();
+    FurnitureItem *furniture = selectedFurniture();
     WallItem *wall = selectedWall();
+
+    // ✅ 优先级处理：
+    // 1. 家具优先级最高（独立对象）
+    // 2. 如果墙体和门窗同时选中，优先显示墙体（门窗是墙体的附属）
+    if (wall && opening) {
+        opening = nullptr;
+    }
+
+    // ✅ 按优先级检查：家具 > 门窗 > 墙体
+    if (furniture) {
+        m_wallGroup->setVisible(false);
+        m_openingGroup->setVisible(false);
+        m_furnitureGroup->setVisible(true);
+
+        if (m_deleteAction) {
+            m_deleteAction->setEnabled(true);
+        }
+
+        m_furnitureWidthSpin->setEnabled(true);
+        m_furnitureDepthSpin->setEnabled(true);
+        m_furnitureHeightSpin->setEnabled(true);
+        m_furnitureElevationSpin->setEnabled(true);
+        m_furnitureRotationSpin->setEnabled(true);
+
+        QSignalBlocker blockWidth(m_furnitureWidthSpin);
+        QSignalBlocker blockDepth(m_furnitureDepthSpin);
+        QSignalBlocker blockHeight(m_furnitureHeightSpin);
+        QSignalBlocker blockElevation(m_furnitureElevationSpin);
+        QSignalBlocker blockRotation(m_furnitureRotationSpin);
+        const QString displayName = furniture->asset().name.isEmpty()
+            ? furniture->assetId()
+            : furniture->asset().name;
+        m_furnitureNameValue->setText(displayName);
+        m_furnitureWidthSpin->setValue(furniture->size2D().width());
+        m_furnitureDepthSpin->setValue(furniture->size2D().height());
+        m_furnitureHeightSpin->setValue(furniture->height3D());
+        m_furnitureElevationSpin->setValue(furniture->elevation());
+        m_furnitureRotationSpin->setValue(furniture->rotationDegrees());
+        return;
+    }
 
     if (opening) {
         m_wallGroup->setVisible(false);
         m_openingGroup->setVisible(true);
+        m_furnitureGroup->setVisible(false);
 
         m_openingTypeValue->setText(
             tr("%1 / %2").arg(opening->kindLabel(), opening->styleLabel()));
@@ -719,8 +975,41 @@ void MainWindow::updateSelectionDetails()
         return;
     }
 
+    if (furniture) {
+        m_wallGroup->setVisible(false);
+        m_openingGroup->setVisible(false);
+        m_furnitureGroup->setVisible(true);
+
+        if (m_deleteAction) {
+            m_deleteAction->setEnabled(true);
+        }
+
+        m_furnitureWidthSpin->setEnabled(true);
+        m_furnitureDepthSpin->setEnabled(true);
+        m_furnitureHeightSpin->setEnabled(true);
+        m_furnitureElevationSpin->setEnabled(true);
+        m_furnitureRotationSpin->setEnabled(true);
+
+        QSignalBlocker blockWidth(m_furnitureWidthSpin);
+        QSignalBlocker blockDepth(m_furnitureDepthSpin);
+        QSignalBlocker blockHeight(m_furnitureHeightSpin);
+        QSignalBlocker blockElevation(m_furnitureElevationSpin);
+        QSignalBlocker blockRotation(m_furnitureRotationSpin);
+        const QString displayName = furniture->asset().name.isEmpty()
+            ? furniture->assetId()
+            : furniture->asset().name;
+        m_furnitureNameValue->setText(displayName);
+        m_furnitureWidthSpin->setValue(furniture->size2D().width());
+        m_furnitureDepthSpin->setValue(furniture->size2D().height());
+        m_furnitureHeightSpin->setValue(furniture->height3D());
+        m_furnitureElevationSpin->setValue(furniture->elevation());
+        m_furnitureRotationSpin->setValue(furniture->rotationDegrees());
+        return;
+    }
+
     m_openingGroup->setVisible(false);
     m_wallGroup->setVisible(true);
+    m_furnitureGroup->setVisible(false);
 
     if (!wall) {
         m_nameValue->setText("-");
@@ -735,6 +1024,11 @@ void MainWindow::updateSelectionDetails()
         m_angleSpin->setEnabled(false);
         m_heightSpin->setEnabled(false);
         m_thicknessSpin->setEnabled(false);
+        m_furnitureWidthSpin->setEnabled(false);
+        m_furnitureDepthSpin->setEnabled(false);
+        m_furnitureHeightSpin->setEnabled(false);
+        m_furnitureElevationSpin->setEnabled(false);
+        m_furnitureRotationSpin->setEnabled(false);
 
         QSignalBlocker blockStartX(m_startXSpin);
         QSignalBlocker blockStartY(m_startYSpin);
@@ -744,6 +1038,11 @@ void MainWindow::updateSelectionDetails()
         QSignalBlocker blockAngle(m_angleSpin);
         QSignalBlocker blockHeight(m_heightSpin);
         QSignalBlocker blockThickness(m_thicknessSpin);
+        QSignalBlocker blockFurnitureWidth(m_furnitureWidthSpin);
+        QSignalBlocker blockFurnitureDepth(m_furnitureDepthSpin);
+        QSignalBlocker blockFurnitureHeight(m_furnitureHeightSpin);
+        QSignalBlocker blockFurnitureElevation(m_furnitureElevationSpin);
+        QSignalBlocker blockFurnitureRotation(m_furnitureRotationSpin);
         m_startXSpin->setValue(0.0);
         m_startYSpin->setValue(0.0);
         m_endXSpin->setValue(0.0);
@@ -752,6 +1051,12 @@ void MainWindow::updateSelectionDetails()
         m_angleSpin->setValue(0.0);
         m_heightSpin->setValue(0.0);
         m_thicknessSpin->setValue(0.0);
+        m_furnitureNameValue->setText("-");
+        m_furnitureWidthSpin->setValue(0.0);
+        m_furnitureDepthSpin->setValue(0.0);
+        m_furnitureHeightSpin->setValue(0.0);
+        m_furnitureElevationSpin->setValue(0.0);
+        m_furnitureRotationSpin->setValue(0.0);
         return;
     }
 
@@ -834,19 +1139,35 @@ void MainWindow::updateToolHint(DesignScene::Mode mode)
 WallItem *MainWindow::selectedWall() const
 {
     const QList<QGraphicsItem *> items = m_scene->selectedItems();
-    if (items.isEmpty()) {
-        return nullptr;
+    for (QGraphicsItem *item : items) {
+        WallItem *wall = qgraphicsitem_cast<WallItem *>(item);
+        if (wall) {
+            return wall;
+        }
     }
-
-    return qgraphicsitem_cast<WallItem *>(items.first());
+    return nullptr;
 }
 
 OpeningItem *MainWindow::selectedOpening() const
 {
     const QList<QGraphicsItem *> items = m_scene->selectedItems();
-    if (items.isEmpty()) {
-        return nullptr;
+    for (QGraphicsItem *item : items) {
+        OpeningItem *opening = qgraphicsitem_cast<OpeningItem *>(item);
+        if (opening) {
+            return opening;
+        }
     }
+    return nullptr;
+}
 
-    return qgraphicsitem_cast<OpeningItem *>(items.first());
+FurnitureItem *MainWindow::selectedFurniture() const
+{
+    const QList<QGraphicsItem *> items = m_scene->selectedItems();
+    for (QGraphicsItem *item : items) {
+        FurnitureItem *furniture = qgraphicsitem_cast<FurnitureItem *>(item);
+        if (furniture) {
+            return furniture;
+        }
+    }
+    return nullptr;
 }

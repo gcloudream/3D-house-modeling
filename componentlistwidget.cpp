@@ -15,6 +15,11 @@ QString ComponentListWidget::openingMimeType()
     return QStringLiteral("application/x-qtplan-opening");
 }
 
+QString ComponentListWidget::furnitureMimeType()
+{
+    return QStringLiteral("application/x-qtplan-furniture");
+}
+
 void ComponentListWidget::startDrag(Qt::DropActions supportedActions)
 {
     QListWidgetItem *item = currentItem();
@@ -28,8 +33,9 @@ void ComponentListWidget::startDrag(Qt::DropActions supportedActions)
         return;
     }
 
+    const QString mimeType = item->data(Qt::UserRole + 1).toString();
     auto *mimeData = new QMimeData();
-    mimeData->setData(openingMimeType(), payload);
+    mimeData->setData(mimeType.isEmpty() ? openingMimeType() : mimeType, payload);
 
     auto *drag = new QDrag(this);
     drag->setMimeData(mimeData);

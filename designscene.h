@@ -10,6 +10,7 @@
 class BlueprintItem;
 class WallItem;
 class OpeningItem;
+class FurnitureItem;
 class QGraphicsEllipseItem;
 class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
@@ -84,6 +85,7 @@ private:
                            qreal *distanceAlong = nullptr) const;
     void updateHoverWall(WallItem *wall);
     void clearOpeningPreview();
+    void clearFurniturePreview();
 
     Mode m_mode;
     BlueprintItem *m_blueprintItem;
@@ -107,6 +109,7 @@ private:
     QGraphicsSimpleTextItem *m_lengthIndicator;
     QVector2D m_lastDirection;
     OpeningItem *m_previewOpening;
+    FurnitureItem *m_previewFurniture;
     WallItem *m_hoverWall;
 };
 

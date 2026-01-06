@@ -39,7 +39,7 @@ OpeningItem::OpeningItem(Kind kind,
     setFlag(QGraphicsItem::ItemIsMovable, true);
     setFlag(QGraphicsItem::ItemSendsGeometryChanges, true);
     setAcceptedMouseButtons(Qt::LeftButton);
-    setZValue(50.0);
+    setZValue(1.0);  // 略高于墙体(0.0)，但低于家具(5.0)
 }
 
 OpeningItem::Kind OpeningItem::kind() const
@@ -216,7 +216,15 @@ QRectF OpeningItem::boundingRect() const
 QPainterPath OpeningItem::shape() const
 {
     QPainterPath path;
-    path.addRect(boundingRect());
+    path.addRect(openingRect());
+    if (m_kind == Kind::Door) {
+        const QRectF handle = flipHandleRect();
+        if (!handle.isNull()) {
+            path.addEllipse(handle);
+        }
+    } else if (m_kind == Kind::Window && m_style == Style::BayWindow) {
+        path.addPolygon(bayOutline());
+    }
     return path;
 }
 

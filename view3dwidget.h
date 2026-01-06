@@ -14,6 +14,7 @@
 class DesignScene;
 class WallItem;
 class OpeningItem;
+class FurnitureItem;
 
 class View3DWidget : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
 {
@@ -49,6 +50,8 @@ private:
                            const OpeningItem *opening,
                            QVector<QVector3D> &solidVertices,
                            QVector<QVector3D> &glassVertices) const;
+    void appendFurnitureMesh(const FurnitureItem *item,
+                             QVector<QVector3D> &vertices) const;
     QMatrix4x4 viewMatrix() const;
 
     DesignScene *m_scene;
@@ -64,6 +67,9 @@ private:
     QVector<QVector3D> m_glassCasementVertices;
     QVector<QVector3D> m_glassSlidingVertices;
     QVector<QVector3D> m_glassBayVertices;
+    QVector<QVector3D> m_furnitureWoodVertices;
+    QVector<QVector3D> m_furnitureMetalVertices;
+    QVector<QVector3D> m_furnitureFabricVertices;
     bool m_geometryDirty;
     int m_vertexCount;
     QMatrix4x4 m_projection;
@@ -84,6 +90,12 @@ private:
         int glassSlidingCount = 0;
         int glassBayStart = 0;
         int glassBayCount = 0;
+        int furnitureWoodStart = 0;
+        int furnitureWoodCount = 0;
+        int furnitureMetalStart = 0;
+        int furnitureMetalCount = 0;
+        int furnitureFabricStart = 0;
+        int furnitureFabricCount = 0;
     } m_ranges;
 
     float m_distance;

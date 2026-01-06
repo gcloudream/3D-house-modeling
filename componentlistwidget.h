@@ -11,6 +11,7 @@ public:
     explicit ComponentListWidget(QWidget *parent = nullptr);
 
     static QString openingMimeType();
+    static QString furnitureMimeType();
 
 protected:
     void startDrag(Qt::DropActions supportedActions) override;

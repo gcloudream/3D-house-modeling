@@ -10,6 +10,9 @@ class WallItem;
 class OpeningItem : public QGraphicsItem
 {
 public:
+    enum { Type = UserType + 2 };
+    int type() const override { return Type; }
+
     enum class Kind {
         Door,
         Window

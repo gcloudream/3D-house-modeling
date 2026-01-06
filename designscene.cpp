@@ -3,6 +3,7 @@
 #include "blueprintitem.h"
 #include "componentlistwidget.h"
 #include "dooritem.h"
+#include "furnitureitem.h"
 #include "openingitem.h"
 #include "wallitem.h"
 #include "windowitem.h"
@@ -49,6 +50,7 @@ DesignScene::DesignScene(QObject *parent)
     , m_lengthInput()
     , m_lastDirection(1.0f, 0.0f)
     , m_previewOpening(nullptr)
+    , m_previewFurniture(nullptr)
     , m_hoverWall(nullptr)
 {
     setSceneRect(-50000.0, -50000.0, 100000.0, 100000.0);
@@ -76,6 +78,7 @@ void DesignScene::setMode(DesignScene::Mode mode)
     }
 
     clearOpeningPreview();
+    clearFurniturePreview();
 
     if (m_mode == Mode_DrawWall && mode != Mode_DrawWall) {
         finalizeWall(QPointF(), false);
@@ -411,7 +414,8 @@ void DesignScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
 void DesignScene::dragEnterEvent(QGraphicsSceneDragDropEvent *event)
 {
     if (event->mimeData() &&
-        event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+        (event->mimeData()->hasFormat(ComponentListWidget::openingMimeType()) ||
+         event->mimeData()->hasFormat(ComponentListWidget::furnitureMimeType()))) {
         event->acceptProposedAction();
         return;
     }
@@ -420,13 +424,14 @@ void DesignScene::dragEnterEvent(QGraphicsSceneDragDropEvent *event)
 
 void DesignScene::dragMoveEvent(QGraphicsSceneDragDropEvent *event)
 {
-    if (!event->mimeData() ||
-        !event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+    if (!event->mimeData()) {
         event->ignore();
         return;
     }
 
-    const QByteArray raw = event->mimeData()->data(ComponentListWidget::openingMimeType());
+    if (event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+        const QByteArray raw =
+            event->mimeData()->data(ComponentListWidget::openingMimeType());
     QJsonParseError error{};
     const QJsonDocument doc = QJsonDocument::fromJson(raw, &error);
     if (doc.isNull() || !doc.isObject()) {
@@ -434,102 +439,156 @@ void DesignScene::dragMoveEvent(QGraphicsSceneDragDropEvent *event)
         return;
     }
 
-    const QJsonObject obj = doc.object();
+        const QJsonObject obj = doc.object();
     const QString kind = obj.value("kind").toString();
     const QString style = obj.value("style").toString();
     const qreal width = obj.value("width").toDouble(900.0);
     const qreal height = obj.value("height").toDouble(2100.0);
     const qreal sill = obj.value("sill").toDouble(0.0);
 
-    const bool needNewPreview =
-        !m_previewOpening ||
-        (kind == "door" && m_previewOpening->kind() != OpeningItem::Kind::Door) ||
-        (kind != "door" && m_previewOpening->kind() != OpeningItem::Kind::Window);
+        const bool needNewPreview =
+            !m_previewOpening ||
+            (kind == "door" && m_previewOpening->kind() != OpeningItem::Kind::Door) ||
+            (kind != "door" && m_previewOpening->kind() != OpeningItem::Kind::Window);
 
-    if (needNewPreview) {
-        clearOpeningPreview();
-        if (kind == "door") {
-            DoorItem::DoorStyle doorStyle = DoorItem::DoorStyle::Single;
-            if (style == "double") {
-                doorStyle = DoorItem::DoorStyle::Double;
-            } else if (style == "sliding") {
-                doorStyle = DoorItem::DoorStyle::Sliding;
+        if (needNewPreview) {
+            clearOpeningPreview();
+            if (kind == "door") {
+                DoorItem::DoorStyle doorStyle = DoorItem::DoorStyle::Single;
+                if (style == "double") {
+                    doorStyle = DoorItem::DoorStyle::Double;
+                } else if (style == "sliding") {
+                    doorStyle = DoorItem::DoorStyle::Sliding;
+                }
+                m_previewOpening = new DoorItem(doorStyle, width, height);
+            } else {
+                WindowItem::WindowStyle windowStyle = WindowItem::WindowStyle::Casement;
+                if (style == "sliding") {
+                    windowStyle = WindowItem::WindowStyle::Sliding;
+                } else if (style == "bay") {
+                    windowStyle = WindowItem::WindowStyle::Bay;
+                }
+                m_previewOpening = new WindowItem(windowStyle, width, height, sill);
             }
-            m_previewOpening = new DoorItem(doorStyle, width, height);
-        } else {
-            WindowItem::WindowStyle windowStyle = WindowItem::WindowStyle::Casement;
-            if (style == "sliding") {
-                windowStyle = WindowItem::WindowStyle::Sliding;
-            } else if (style == "bay") {
-                windowStyle = WindowItem::WindowStyle::Bay;
+            m_previewOpening->setPreview(true);
+            addItem(m_previewOpening);
+        }
+
+        if (m_previewOpening) {
+            m_previewOpening->setWidth(width);
+            m_previewOpening->setHeight(height);
+            m_previewOpening->setSillHeight(sill);
+        }
+
+        const QPointF scenePos = event->scenePos();
+        qreal distanceAlong = 0.0;
+        WallItem *wall = findWallNear(scenePos, 50.0, &distanceAlong);
+        updateHoverWall(wall);
+
+        if (wall) {
+            m_previewOpening->setVisible(true);
+            m_previewOpening->setWall(wall);
+
+            const qreal length = QLineF(wall->startPos(), wall->endPos()).length();
+            qreal centerDistance = distanceAlong;
+            const qreal snapDistance = 80.0;
+            if (qAbs(centerDistance) <= snapDistance) {
+                centerDistance = 0.0;
+            } else if (qAbs(centerDistance - length / 2.0) <= snapDistance) {
+                centerDistance = length / 2.0;
+            } else if (qAbs(centerDistance - length) <= snapDistance) {
+                centerDistance = length;
             }
-            m_previewOpening = new WindowItem(windowStyle, width, height, sill);
+            const qreal startDistance = centerDistance - width / 2.0;
+            m_previewOpening->setDistanceFromStart(startDistance);
+            m_previewOpening->syncWithWall();
+        } else if (m_previewOpening) {
+            m_previewOpening->setVisible(false);
         }
-        m_previewOpening->setPreview(true);
-        addItem(m_previewOpening);
+
+        event->acceptProposedAction();
+        return;
     }
 
-    if (m_previewOpening) {
-        m_previewOpening->setWidth(width);
-        m_previewOpening->setHeight(height);
-        m_previewOpening->setSillHeight(sill);
-    }
-
-    const QPointF scenePos = event->scenePos();
-    qreal distanceAlong = 0.0;
-    WallItem *wall = findWallNear(scenePos, 50.0, &distanceAlong);
-    updateHoverWall(wall);
-
-    if (wall) {
-        m_previewOpening->setVisible(true);
-        m_previewOpening->setWall(wall);
-
-        const qreal length = QLineF(wall->startPos(), wall->endPos()).length();
-        qreal centerDistance = distanceAlong;
-        const qreal snapDistance = 80.0;
-        if (qAbs(centerDistance) <= snapDistance) {
-            centerDistance = 0.0;
-        } else if (qAbs(centerDistance - length / 2.0) <= snapDistance) {
-            centerDistance = length / 2.0;
-        } else if (qAbs(centerDistance - length) <= snapDistance) {
-            centerDistance = length;
+    if (event->mimeData()->hasFormat(ComponentListWidget::furnitureMimeType())) {
+        const QByteArray raw =
+            event->mimeData()->data(ComponentListWidget::furnitureMimeType());
+        QJsonParseError error{};
+        const QJsonDocument doc = QJsonDocument::fromJson(raw, &error);
+        if (doc.isNull() || !doc.isObject()) {
+            event->ignore();
+            return;
         }
-        const qreal startDistance = centerDistance - width / 2.0;
-        m_previewOpening->setDistanceFromStart(startDistance);
-        m_previewOpening->syncWithWall();
-    } else if (m_previewOpening) {
-        m_previewOpening->setVisible(false);
+
+        const QJsonObject obj = doc.object();
+        const QString assetId = obj.value("assetId").toString();
+        if (assetId.isEmpty()) {
+            event->ignore();
+            return;
+        }
+
+        if (!m_previewFurniture || m_previewFurniture->assetId() != assetId) {
+            clearFurniturePreview();
+            m_previewFurniture = new FurnitureItem(assetId);
+            m_previewFurniture->setPreview(true);
+            addItem(m_previewFurniture);
+        }
+
+        if (m_previewFurniture) {
+            m_previewFurniture->setPos(event->scenePos());
+        }
+
+        event->acceptProposedAction();
+        return;
     }
 
-    event->acceptProposedAction();
+    event->ignore();
 }
 
 void DesignScene::dragLeaveEvent(QGraphicsSceneDragDropEvent *event)
 {
     Q_UNUSED(event);
     clearOpeningPreview();
+    clearFurniturePreview();
 }
 
 void DesignScene::dropEvent(QGraphicsSceneDragDropEvent *event)
 {
-    if (!event->mimeData() ||
-        !event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+    if (!event->mimeData()) {
         event->ignore();
         return;
     }
 
-    if (m_previewOpening && m_hoverWall) {
-        m_previewOpening->setPreview(false);
-        m_hoverWall->addOpening(m_previewOpening);
-        m_previewOpening->setSelected(true);
-        notifySceneChanged();
-        m_previewOpening = nullptr;
-        updateHoverWall(nullptr);
-    } else {
-        clearOpeningPreview();
+    if (event->mimeData()->hasFormat(ComponentListWidget::openingMimeType())) {
+        if (m_previewOpening && m_hoverWall) {
+            m_previewOpening->setPreview(false);
+            m_hoverWall->addOpening(m_previewOpening);
+            clearSelection();  // 清除之前的选择
+            m_previewOpening->setSelected(true);
+            notifySceneChanged();
+            m_previewOpening = nullptr;
+            updateHoverWall(nullptr);
+        } else {
+            clearOpeningPreview();
+        }
+
+        event->acceptProposedAction();
+        return;
     }
 
-    event->acceptProposedAction();
+    if (event->mimeData()->hasFormat(ComponentListWidget::furnitureMimeType())) {
+        if (m_previewFurniture) {
+            m_previewFurniture->setPreview(false);
+            clearSelection();  // 清除之前的选择
+            m_previewFurniture->setSelected(true);
+            notifySceneChanged();
+            m_previewFurniture = nullptr;
+        }
+        event->acceptProposedAction();
+        return;
+    }
+
+    event->ignore();
 }
 
 void DesignScene::keyPressEvent(QKeyEvent *event)
@@ -897,5 +956,14 @@ void DesignScene::clearOpeningPreview()
         removeItem(m_previewOpening);
         delete m_previewOpening;
         m_previewOpening = nullptr;
+    }
+}
+
+void DesignScene::clearFurniturePreview()
+{
+    if (m_previewFurniture) {
+        removeItem(m_previewFurniture);
+        delete m_previewFurniture;
+        m_previewFurniture = nullptr;
     }
 }
