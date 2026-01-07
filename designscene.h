@@ -11,6 +11,7 @@ class BlueprintItem;
 class WallItem;
 class OpeningItem;
 class FurnitureItem;
+class QJsonObject;
 class QGraphicsEllipseItem;
 class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
@@ -39,6 +40,14 @@ public:
     void applyCalibration(qreal actualLengthMm);
     void applyWallHeightToAllWalls(qreal height);
     void notifySceneChanged();
+
+    QJsonObject toJson() const;
+    void fromJson(const QJsonObject &root);
+    void resetScene();
+    QList<WallItem *> walls() const;
+    QList<OpeningItem *> openings() const;
+    QList<FurnitureItem *> furniture() const;
+    BlueprintItem *blueprintItem() const;
 
     void setSnapEnabled(bool enabled);
     bool snapEnabled() const;
@@ -77,6 +86,7 @@ private:
     void updateLengthIndicator();
     bool tryBeginEdit(const QPointF &scenePos);
     bool tryBeginDrag(const QPointF &scenePos);
+    void initializeHelpers();
 
     void finalizeWall(const QPointF &endPos, bool applyEndPos);
     void resetCalibration();
@@ -111,6 +121,7 @@ private:
     OpeningItem *m_previewOpening;
     FurnitureItem *m_previewFurniture;
     WallItem *m_hoverWall;
+    QString m_projectCreatedAt;
 };
 
 #endif // DESIGNSCENE_H

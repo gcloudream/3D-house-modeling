@@ -7,6 +7,7 @@
 #include "designscene.h"
 #include "furnitureitem.h"
 #include "openingitem.h"
+#include "projectmanager.h"
 #include "view2dwidget.h"
 #include "view3dwidget.h"
 #include "wallitem.h"
@@ -14,12 +15,15 @@
 #include <QActionGroup>
 #include <QAction>
 #include <QComboBox>
+#include <QCloseEvent>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGraphicsItem>
 #include <QIcon>
+#include <QImage>
 #include <QInputDialog>
 #include <QLineF>
 #include <QFont>
@@ -30,6 +34,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
 #include <QPointF>
 #include <QPoint>
 #include <QPixmap>
@@ -38,6 +43,7 @@
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSize>
+#include <QTimer>
 #include <QStringList>
 #include <QStatusBar>
 #include <QToolBar>
@@ -88,23 +94,54 @@ MainWindow::MainWindow(QWidget *parent)
     , m_furnitureElevationSpin(nullptr)
     , m_furnitureRotationSpin(nullptr)
     , m_blueprintOpacitySlider(nullptr)
+    , m_newAction(nullptr)
+    , m_openAction(nullptr)
+    , m_saveAction(nullptr)
+    , m_saveAsAction(nullptr)
+    , m_exportAction(nullptr)
     , m_selectAction(nullptr)
     , m_drawWallAction(nullptr)
     , m_calibrateAction(nullptr)
     , m_snapAction(nullptr)
     , m_deleteAction(nullptr)
+    , m_recentMenu(nullptr)
+    , m_autosaveTimer(nullptr)
 {
     ui->setupUi(this);
 
     setWindowTitle("QtPlanArchitect");
 
     setupCentralView();
+    ProjectManager::instance()->setScene(m_scene);
     setupDocks();
     setupToolbar();
     setupStatusBar();
     setupPreview3D();
     connectSignals();
+    connect(ProjectManager::instance(),
+            &ProjectManager::dirtyChanged,
+            this,
+            &MainWindow::updateWindowTitle);
+    connect(ProjectManager::instance(),
+            &ProjectManager::currentPathChanged,
+            this,
+            &MainWindow::updateWindowTitle);
+    connect(ProjectManager::instance(),
+            &ProjectManager::recentFilesChanged,
+            this,
+            &MainWindow::rebuildRecentFilesMenu);
+
+    m_autosaveTimer = new QTimer(this);
+    m_autosaveTimer->setInterval(5 * 60 * 1000);
+    connect(m_autosaveTimer, &QTimer::timeout, this, []() {
+        ProjectManager::instance()->saveAutosave();
+    });
+    m_autosaveTimer->start();
+
+    rebuildRecentFilesMenu();
+    checkAutosaveRecovery();
     updateToolHint(m_scene->mode());
+    updateWindowTitle();
 }
 
 MainWindow::~MainWindow()
@@ -469,13 +506,19 @@ void MainWindow::setupToolbar()
     toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->setIconSize(QSize(18, 18));
 
-    auto *saveAction = new QAction(tr("保存"), this);
-    auto *undoAction = new QAction(tr("撤销"), this);
+    m_newAction = new QAction(tr("新建"), this);
+    m_newAction->setShortcut(QKeySequence::New);
+    m_openAction = new QAction(tr("打开"), this);
+    m_openAction->setShortcut(QKeySequence::Open);
+    m_saveAction = new QAction(tr("保存"), this);
+    m_saveAction->setShortcut(QKeySequence::Save);
+    m_saveAsAction = new QAction(tr("另存为"), this);
+    m_saveAsAction->setShortcut(QKeySequence::SaveAs);
     m_deleteAction = new QAction(tr("删除"), this);
     m_deleteAction->setShortcut(QKeySequence::Delete);
     m_deleteAction->setShortcutContext(Qt::WindowShortcut);
     m_deleteAction->setEnabled(false);
-    auto *exportAction = new QAction(tr("导出"), this);
+    m_exportAction = new QAction(tr("导出"), this);
     auto *importBlueprintAction = new QAction(tr("导入底图"), this);
     m_snapAction = new QAction(tr("吸附"), this);
     m_snapAction->setCheckable(true);
@@ -497,11 +540,10 @@ void MainWindow::setupToolbar()
     toolGroup->setExclusive(true);
     m_selectAction->setChecked(true);
 
-    toolbar->addAction(saveAction);
-    toolbar->addAction(undoAction);
+    toolbar->addAction(m_saveAction);
     toolbar->addAction(m_deleteAction);
     toolbar->addSeparator();
-    toolbar->addAction(exportAction);
+    toolbar->addAction(m_exportAction);
     toolbar->addSeparator();
     toolbar->addAction(m_selectAction);
     toolbar->addAction(m_drawWallAction);
@@ -513,17 +555,31 @@ void MainWindow::setupToolbar()
     toolbar->addAction(importBlueprintAction);
 
     auto *fileMenu = menuBar()->addMenu(tr("文件"));
-    fileMenu->addAction(saveAction);
+    fileMenu->addAction(m_newAction);
+    fileMenu->addAction(m_openAction);
+    fileMenu->addAction(m_saveAction);
+    fileMenu->addAction(m_saveAsAction);
+    m_recentMenu = fileMenu->addMenu(tr("最近文件"));
+    fileMenu->addSeparator();
     fileMenu->addAction(importBlueprintAction);
     fileMenu->addSeparator();
-    fileMenu->addAction(exportAction);
+    fileMenu->addAction(m_exportAction);
 
     auto *editMenu = menuBar()->addMenu(tr("编辑"));
-    editMenu->addAction(undoAction);
     editMenu->addAction(m_deleteAction);
     editMenu->addAction(m_snapAction);
     editMenu->addAction(alignHorizontalAction);
     editMenu->addAction(alignVerticalAction);
+
+    connect(m_newAction, &QAction::triggered, this, &MainWindow::newProject);
+    connect(m_openAction, &QAction::triggered, this, &MainWindow::openProject);
+    connect(m_saveAction, &QAction::triggered, this, [this]() {
+        saveProject();
+    });
+    connect(m_saveAsAction, &QAction::triggered, this, [this]() {
+        saveProjectAs();
+    });
+    connect(m_exportAction, &QAction::triggered, this, &MainWindow::exportImage);
 
     connect(m_selectAction, &QAction::triggered, this, [this]() {
         m_scene->setMode(DesignScene::Mode_Select);
@@ -948,6 +1004,268 @@ void MainWindow::connectSignals()
             });
 }
 
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (confirmSave()) {
+        event->accept();
+    } else {
+        event->ignore();
+    }
+}
+
+void MainWindow::updateWindowTitle()
+{
+    const ProjectManager *manager = ProjectManager::instance();
+    const QString path = manager->currentPath();
+    QString title = QStringLiteral("QtPlanArchitect");
+    if (path.isEmpty()) {
+        title += QStringLiteral(" - 未命名");
+    } else {
+        title += QStringLiteral(" - %1").arg(QFileInfo(path).fileName());
+    }
+    if (manager->isDirty()) {
+        title += QStringLiteral("*");
+    }
+    setWindowTitle(title);
+}
+
+void MainWindow::rebuildRecentFilesMenu()
+{
+    if (!m_recentMenu) {
+        return;
+    }
+
+    m_recentMenu->clear();
+    const QStringList files = ProjectManager::instance()->recentFiles();
+    if (files.isEmpty()) {
+        auto *emptyAction = new QAction(tr("暂无最近文件"), m_recentMenu);
+        emptyAction->setEnabled(false);
+        m_recentMenu->addAction(emptyAction);
+        return;
+    }
+
+    for (const QString &path : files) {
+        auto *action = new QAction(path, m_recentMenu);
+        connect(action, &QAction::triggered, this, [this, path]() {
+            openRecentProject(path);
+        });
+        m_recentMenu->addAction(action);
+    }
+}
+
+void MainWindow::checkAutosaveRecovery()
+{
+    ProjectManager *manager = ProjectManager::instance();
+    if (!manager->hasAutosave()) {
+        return;
+    }
+
+    const auto reply = QMessageBox::question(
+        this,
+        tr("自动保存恢复"),
+        tr("检测到自动保存文件，是否恢复？"),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::Yes);
+    if (reply == QMessageBox::Yes) {
+        QString error;
+        if (!manager->loadAutosave(&error)) {
+            QMessageBox::warning(this, tr("恢复失败"), error);
+        }
+        updateSelectionDetails();
+    } else {
+        manager->removeAutosave();
+    }
+}
+
+bool MainWindow::confirmSave()
+{
+    ProjectManager *manager = ProjectManager::instance();
+    if (!manager->isDirty()) {
+        return true;
+    }
+
+    const auto reply = QMessageBox::warning(
+        this,
+        tr("未保存的更改"),
+        tr("当前项目已修改，是否保存？"),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Save);
+    if (reply == QMessageBox::Save) {
+        return saveProject();
+    }
+    if (reply == QMessageBox::Discard) {
+        return true;
+    }
+    return false;
+}
+
+void MainWindow::newProject()
+{
+    if (!confirmSave()) {
+        return;
+    }
+
+    m_scene->resetScene();
+    ProjectManager::instance()->clearCurrentProject();
+    m_scene->setMode(DesignScene::Mode_Select);
+    updateSelectionDetails();
+    updateWindowTitle();
+}
+
+void MainWindow::openProject()
+{
+    if (!confirmSave()) {
+        return;
+    }
+
+    const QString fileName = QFileDialog::getOpenFileName(
+        this,
+        tr("打开项目"),
+        QString(),
+        tr("QtPlanArchitect 项目 (*.qplan)"));
+    if (fileName.isEmpty()) {
+        return;
+    }
+
+    QString error;
+    if (!ProjectManager::instance()->loadFromPath(fileName, &error)) {
+        QMessageBox::warning(this, tr("打开失败"), error);
+        return;
+    }
+
+    m_scene->setMode(DesignScene::Mode_Select);
+    updateSelectionDetails();
+}
+
+void MainWindow::openRecentProject(const QString &path)
+{
+    if (!confirmSave()) {
+        return;
+    }
+
+    if (!QFileInfo::exists(path)) {
+        ProjectManager::instance()->removeRecentFile(path);
+        QMessageBox::warning(this, tr("文件不存在"), tr("无法找到文件: %1").arg(path));
+        return;
+    }
+
+    QString error;
+    if (!ProjectManager::instance()->loadFromPath(path, &error)) {
+        QMessageBox::warning(this, tr("打开失败"), error);
+        return;
+    }
+
+    m_scene->setMode(DesignScene::Mode_Select);
+    updateSelectionDetails();
+}
+
+bool MainWindow::saveProject()
+{
+    ProjectManager *manager = ProjectManager::instance();
+    if (manager->currentPath().isEmpty()) {
+        return saveProjectAs();
+    }
+
+    QString error;
+    if (!manager->saveCurrent(&error)) {
+        QMessageBox::warning(this, tr("保存失败"), error);
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::saveProjectAs()
+{
+    const QString fileName = QFileDialog::getSaveFileName(
+        this,
+        tr("另存为"),
+        tr("未命名.qplan"),
+        tr("QtPlanArchitect 项目 (*.qplan)"));
+    if (fileName.isEmpty()) {
+        return false;
+    }
+
+    QString error;
+    if (!ProjectManager::instance()->saveToPath(fileName, &error)) {
+        QMessageBox::warning(this, tr("保存失败"), error);
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::exportImage()
+{
+    const QString filter = tr("PNG 图片 (*.png);;JPG 图片 (*.jpg *.jpeg);;BMP 图片 (*.bmp)");
+    QString selectedFilter;
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        tr("导出图片"),
+        QString(),
+        filter,
+        &selectedFilter);
+    if (fileName.isEmpty()) {
+        return;
+    }
+
+    const QRectF sourceRect = m_scene->itemsBoundingRect().isNull()
+        ? m_scene->sceneRect()
+        : m_scene->itemsBoundingRect();
+
+    const int defaultWidth = qMax(1, qRound(sourceRect.width()));
+    const int defaultHeight = qMax(1, qRound(sourceRect.height()));
+
+    bool ok = false;
+    const int width = QInputDialog::getInt(
+        this,
+        tr("导出分辨率"),
+        tr("宽度 (px)"),
+        defaultWidth,
+        1,
+        20000,
+        1,
+        &ok);
+    if (!ok) {
+        return;
+    }
+
+    const int height = QInputDialog::getInt(
+        this,
+        tr("导出分辨率"),
+        tr("高度 (px)"),
+        defaultHeight,
+        1,
+        20000,
+        1,
+        &ok);
+    if (!ok) {
+        return;
+    }
+
+    QString suffix = QFileInfo(fileName).suffix().toLower();
+    if (suffix.isEmpty()) {
+        if (selectedFilter.contains("jpg", Qt::CaseInsensitive)) {
+            suffix = "jpg";
+        } else if (selectedFilter.contains("bmp", Qt::CaseInsensitive)) {
+            suffix = "bmp";
+        } else {
+            suffix = "png";
+        }
+        fileName += "." + suffix;
+    }
+
+    QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::white);
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    m_scene->render(&painter, QRectF(0.0, 0.0, width, height), sourceRect, Qt::KeepAspectRatio);
+    painter.end();
+
+    if (!image.save(fileName)) {
+        QMessageBox::warning(this, tr("导出失败"), tr("无法写入图片: %1").arg(fileName));
+    }
+}
+
 void MainWindow::importBlueprint()
 {
     const QString fileName = QFileDialog::getOpenFileName(
@@ -969,6 +1287,10 @@ void MainWindow::importBlueprint()
     if (!m_scene->setBlueprintPixmap(pixmap)) {
         QMessageBox::warning(this, tr("导入失败"), tr("底图初始化失败。"));
         return;
+    }
+
+    if (BlueprintItem *blueprint = m_scene->blueprintItem()) {
+        blueprint->setSourcePath(fileName);
     }
 
     m_blueprintOpacitySlider->setEnabled(true);

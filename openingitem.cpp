@@ -6,15 +6,72 @@
 #include <QPainterPath>
 #include <QGraphicsSceneMouseEvent>
 #include <QStyleOptionGraphicsItem>
+#include <QJsonObject>
 #include <QLineF>
 #include <QtMath>
 #include <QVector2D>
+#include <QtGlobal>
 #include <cmath>
 
 namespace {
 constexpr qreal kHandleRadius = 5.0;
 constexpr qreal kHandleOffset = 12.0;
 constexpr qreal kDefaultThickness = 30.0;
+
+QString kindToString(OpeningItem::Kind kind)
+{
+    return kind == OpeningItem::Kind::Door ? QStringLiteral("door")
+                                           : QStringLiteral("window");
+}
+
+OpeningItem::Kind kindFromString(const QString &value)
+{
+    if (value.compare("door", Qt::CaseInsensitive) == 0) {
+        return OpeningItem::Kind::Door;
+    }
+    return OpeningItem::Kind::Window;
+}
+
+QString styleToString(OpeningItem::Style style)
+{
+    switch (style) {
+    case OpeningItem::Style::SingleDoor:
+        return QStringLiteral("single");
+    case OpeningItem::Style::DoubleDoor:
+        return QStringLiteral("double");
+    case OpeningItem::Style::SlidingDoor:
+        return QStringLiteral("sliding");
+    case OpeningItem::Style::CasementWindow:
+        return QStringLiteral("casement");
+    case OpeningItem::Style::SlidingWindow:
+        return QStringLiteral("sliding");
+    case OpeningItem::Style::BayWindow:
+        return QStringLiteral("bay");
+    default:
+        return QStringLiteral("single");
+    }
+}
+
+OpeningItem::Style styleFromString(const QString &value, OpeningItem::Kind kind)
+{
+    if (kind == OpeningItem::Kind::Door) {
+        if (value.compare("double", Qt::CaseInsensitive) == 0) {
+            return OpeningItem::Style::DoubleDoor;
+        }
+        if (value.compare("sliding", Qt::CaseInsensitive) == 0) {
+            return OpeningItem::Style::SlidingDoor;
+        }
+        return OpeningItem::Style::SingleDoor;
+    }
+
+    if (value.compare("sliding", Qt::CaseInsensitive) == 0) {
+        return OpeningItem::Style::SlidingWindow;
+    }
+    if (value.compare("bay", Qt::CaseInsensitive) == 0) {
+        return OpeningItem::Style::BayWindow;
+    }
+    return OpeningItem::Style::CasementWindow;
+}
 }
 
 OpeningItem::OpeningItem(Kind kind,
@@ -75,6 +132,49 @@ QString OpeningItem::styleLabel() const
     default:
         return QString();
     }
+}
+
+QJsonObject OpeningItem::toJson() const
+{
+    QJsonObject obj;
+    obj["type"] = kindToString(m_kind);
+    obj["style"] = styleToString(m_style);
+    obj["wall_id"] = m_wall ? m_wall->id() : QString();
+    obj["distance_from_start"] = m_distance;
+    obj["width"] = m_width;
+    obj["height"] = m_height;
+    obj["sill_height"] = m_sillHeight;
+    obj["flipped"] = m_flipped;
+    return obj;
+}
+
+OpeningItem *OpeningItem::fromJson(const QJsonObject &json, WallItem *wall)
+{
+    QString type = json.value("type").toString();
+    if (type.isEmpty()) {
+        type = json.value("kind").toString();
+    }
+    const Kind kind = kindFromString(type);
+    const QString styleValue = json.value("style").toString();
+    const Style style = styleFromString(styleValue, kind);
+    const qreal width =
+        json.value("width").toDouble(kind == Kind::Door ? 900.0 : 1000.0);
+    const qreal height =
+        json.value("height").toDouble(kind == Kind::Door ? 2100.0 : 1000.0);
+    const qreal sill = json.value("sill_height")
+                           .toDouble(json.value("sill").toDouble(0.0));
+
+    OpeningItem *opening = new OpeningItem(kind, style, width, height, sill);
+    opening->setPreview(false);
+    opening->setWall(wall);
+    if (wall) {
+        const qreal distance = json.value("distance_from_start").toDouble(0.0);
+        opening->setDistanceFromStart(distance);
+    }
+    if (json.contains("flipped")) {
+        opening->setFlipped(json.value("flipped").toBool());
+    }
+    return opening;
 }
 
 void OpeningItem::setWall(WallItem *wall)

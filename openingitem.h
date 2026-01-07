@@ -6,6 +6,7 @@
 #include <QString>
 
 class WallItem;
+class QJsonObject;
 
 class OpeningItem : public QGraphicsItem
 {
@@ -62,6 +63,9 @@ public:
     void toggleFlip();
 
     void syncWithWall();
+
+    QJsonObject toJson() const;
+    static OpeningItem *fromJson(const QJsonObject &json, WallItem *wall);
 
     QRectF boundingRect() const override;
     QPainterPath shape() const override;

@@ -19,6 +19,9 @@ class QSlider;
 class QAction;
 class QDockWidget;
 class QGroupBox;
+class QMenu;
+class QTimer;
+class QCloseEvent;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -34,6 +37,9 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
 private:
     void setupCentralView();
     void setupDocks();
@@ -42,6 +48,16 @@ private:
     void setupPreview3D();
     void connectSignals();
     void importBlueprint();
+    void updateWindowTitle();
+    void rebuildRecentFilesMenu();
+    void checkAutosaveRecovery();
+    bool confirmSave();
+    void newProject();
+    void openProject();
+    void openRecentProject(const QString &path);
+    bool saveProject();
+    bool saveProjectAs();
+    void exportImage();
     void updateSelectionDetails();
     void handleCalibration(qreal measuredLength);
     void updateToolHint(DesignScene::Mode mode);
@@ -89,10 +105,17 @@ private:
     QDoubleSpinBox *m_furnitureElevationSpin;
     QDoubleSpinBox *m_furnitureRotationSpin;
     QSlider *m_blueprintOpacitySlider;
+    QAction *m_newAction;
+    QAction *m_openAction;
+    QAction *m_saveAction;
+    QAction *m_saveAsAction;
+    QAction *m_exportAction;
     QAction *m_selectAction;
     QAction *m_drawWallAction;
     QAction *m_calibrateAction;
     QAction *m_snapAction;
     QAction *m_deleteAction;
+    QMenu *m_recentMenu;
+    QTimer *m_autosaveTimer;
 };
 #endif // MAINWINDOW_H

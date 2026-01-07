@@ -3,9 +3,12 @@
 #include "openingitem.h"
 
 #include <QBrush>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLineF>
 #include <QPen>
 #include <QPolygonF>
+#include <QUuid>
 
 WallItem::WallItem(const QPointF &start,
                    const QPointF &end,
@@ -15,6 +18,7 @@ WallItem::WallItem(const QPointF &start,
     : QGraphicsPolygonItem(parent)
     , m_start(start)
     , m_end(end)
+    , m_id()
     , m_thickness(thickness)
     , m_height(height)
     , m_openings()
@@ -22,6 +26,7 @@ WallItem::WallItem(const QPointF &start,
     , m_baseBrush(QColor(186, 195, 205))
     , m_highlighted(false)
 {
+    ensureId();
     setFlags(QGraphicsItem::ItemIsSelectable);
     setPen(m_basePen);
     setBrush(m_baseBrush);
@@ -138,6 +143,44 @@ QList<OpeningItem *> WallItem::openings() const
     return m_openings;
 }
 
+QString WallItem::id() const
+{
+    return m_id;
+}
+
+void WallItem::setId(const QString &id)
+{
+    m_id = id;
+    ensureId();
+}
+
+QJsonObject WallItem::toJson() const
+{
+    QJsonObject obj;
+    obj["id"] = m_id;
+    obj["start"] = QJsonArray{m_start.x(), m_start.y()};
+    obj["end"] = QJsonArray{m_end.x(), m_end.y()};
+    obj["thickness"] = m_thickness;
+    obj["height"] = m_height;
+    return obj;
+}
+
+WallItem *WallItem::fromJson(const QJsonObject &json)
+{
+    const QJsonArray startArray = json.value("start").toArray();
+    const QJsonArray endArray = json.value("end").toArray();
+    const QPointF start(startArray.size() > 0 ? startArray.at(0).toDouble() : 0.0,
+                        startArray.size() > 1 ? startArray.at(1).toDouble() : 0.0);
+    const QPointF end(endArray.size() > 0 ? endArray.at(0).toDouble() : 0.0,
+                      endArray.size() > 1 ? endArray.at(1).toDouble() : 0.0);
+    const qreal thickness = json.value("thickness").toDouble(30.0);
+    const qreal height = json.value("height").toDouble(200.0);
+
+    WallItem *wall = new WallItem(start, end, thickness, height);
+    wall->setId(json.value("id").toString());
+    return wall;
+}
+
 void WallItem::setHighlighted(bool highlighted)
 {
     if (m_highlighted == highlighted) {
@@ -165,5 +208,12 @@ void WallItem::syncOpenings()
         if (opening) {
             opening->syncWithWall();
         }
+    }
+}
+
+void WallItem::ensureId()
+{
+    if (m_id.isEmpty()) {
+        m_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     }
 }

@@ -8,6 +8,8 @@
 
 #include "assetmanager.h"
 
+class QJsonObject;
+
 class FurnitureItem : public QGraphicsSvgItem
 {
 public:
@@ -42,6 +44,9 @@ public:
     QVector3D modelScale(const QVector3D &modelSize) const;
 
     QString material() const;
+
+    QJsonObject toJson() const;
+    static FurnitureItem *fromJson(const QJsonObject &json);
 
     QMatrix4x4 transformMatrix() const;
 

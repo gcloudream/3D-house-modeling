@@ -9,12 +9,15 @@
 #include "windowitem.h"
 
 #include <QBrush>
+#include <QDateTime>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsItem>
 #include <QGraphicsLineItem>
 #include <QGraphicsSimpleTextItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSceneDragDropEvent>
+#include <QHash>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
@@ -52,9 +55,19 @@ DesignScene::DesignScene(QObject *parent)
     , m_previewOpening(nullptr)
     , m_previewFurniture(nullptr)
     , m_hoverWall(nullptr)
+    , m_projectCreatedAt()
 {
     setSceneRect(-50000.0, -50000.0, 100000.0, 100000.0);
+    initializeHelpers();
+    m_projectCreatedAt = QDateTime::currentDateTime().toString(Qt::ISODate);
 
+    connect(this, &QGraphicsScene::changed, this, [this](const QList<QRectF> &) {
+        emit sceneContentChanged();
+    });
+}
+
+void DesignScene::initializeHelpers()
+{
     m_snapIndicator = addEllipse(QRectF(-4.0, -4.0, 8.0, 8.0),
                                  QPen(QColor(47, 110, 143), 1.5),
                                  QBrush(QColor(47, 110, 143, 90)));
@@ -65,10 +78,6 @@ DesignScene::DesignScene(QObject *parent)
     m_lengthIndicator->setZValue(1001.0);
     m_lengthIndicator->setVisible(false);
     m_lengthIndicator->setBrush(QBrush(QColor(47, 110, 143)));
-
-    connect(this, &QGraphicsScene::changed, this, [this](const QList<QRectF> &) {
-        emit sceneContentChanged();
-    });
 }
 
 void DesignScene::setMode(DesignScene::Mode mode)
@@ -178,6 +187,203 @@ void DesignScene::applyWallHeightToAllWalls(qreal height)
 void DesignScene::notifySceneChanged()
 {
     emit sceneContentChanged();
+}
+
+QJsonObject DesignScene::toJson() const
+{
+    QJsonObject root;
+    QJsonObject info;
+    info["version"] = QStringLiteral("1.0");
+    const QString createdAt = m_projectCreatedAt.isEmpty()
+        ? QDateTime::currentDateTime().toString(Qt::ISODate)
+        : m_projectCreatedAt;
+    info["created_at"] = createdAt;
+    root["project_info"] = info;
+
+    QJsonObject settings;
+    if (m_blueprintItem) {
+        settings["background_image"] = m_blueprintItem->sourcePath();
+        settings["pixel_ratio"] = m_blueprintItem->scale();
+        settings["opacity"] = m_blueprintItem->opacity();
+        settings["rotation"] = m_blueprintItem->rotation();
+    } else {
+        settings["background_image"] = QString();
+        settings["pixel_ratio"] = 1.0;
+        settings["opacity"] = 1.0;
+        settings["rotation"] = 0.0;
+    }
+    root["settings"] = settings;
+
+    QJsonArray wallsArray;
+    for (WallItem *wall : walls()) {
+        if (wall) {
+            wallsArray.append(wall->toJson());
+        }
+    }
+    root["walls"] = wallsArray;
+
+    QJsonArray openingsArray;
+    for (OpeningItem *opening : openings()) {
+        if (opening) {
+            openingsArray.append(opening->toJson());
+        }
+    }
+    root["openings"] = openingsArray;
+
+    QJsonArray furnitureArray;
+    for (FurnitureItem *item : furniture()) {
+        if (item) {
+            furnitureArray.append(item->toJson());
+        }
+    }
+    root["furniture"] = furnitureArray;
+
+    return root;
+}
+
+void DesignScene::fromJson(const QJsonObject &root)
+{
+    resetScene();
+
+    const QJsonObject info = root.value("project_info").toObject();
+    m_projectCreatedAt = info.value("created_at").toString();
+    if (m_projectCreatedAt.isEmpty()) {
+        m_projectCreatedAt = QDateTime::currentDateTime().toString(Qt::ISODate);
+    }
+
+    const QJsonObject settings = root.value("settings").toObject();
+    const QString backgroundPath = settings.value("background_image").toString();
+    const qreal pixelRatio = settings.value("pixel_ratio").toDouble(1.0);
+    const qreal opacity = settings.value("opacity").toDouble(1.0);
+    const qreal rotation = settings.value("rotation").toDouble(0.0);
+
+    if (!backgroundPath.isEmpty()) {
+        QPixmap pixmap(backgroundPath);
+        if (!pixmap.isNull() && setBlueprintPixmap(pixmap)) {
+            if (m_blueprintItem) {
+                m_blueprintItem->setSourcePath(backgroundPath);
+                m_blueprintItem->setScale(pixelRatio > 0.0 ? pixelRatio : 1.0);
+                m_blueprintItem->setOpacity(qBound(0.0, opacity, 1.0));
+                m_blueprintItem->setRotation(rotation);
+            }
+        }
+    }
+
+    QHash<QString, WallItem *> wallMap;
+    const QJsonArray wallsArray = root.value("walls").toArray();
+    for (const QJsonValue &value : wallsArray) {
+        if (!value.isObject()) {
+            continue;
+        }
+        WallItem *wall = WallItem::fromJson(value.toObject());
+        addItem(wall);
+        wallMap.insert(wall->id(), wall);
+    }
+
+    const QJsonArray openingsArray = root.value("openings").toArray();
+    for (const QJsonValue &value : openingsArray) {
+        if (!value.isObject()) {
+            continue;
+        }
+        const QJsonObject obj = value.toObject();
+        const QString wallId = obj.value("wall_id").toString();
+        WallItem *wall = wallMap.value(wallId, nullptr);
+        if (!wall) {
+            continue;
+        }
+        OpeningItem *opening = OpeningItem::fromJson(obj, wall);
+        addItem(opening);
+        wall->addOpening(opening);
+    }
+
+    const QJsonArray furnitureArray = root.value("furniture").toArray();
+    for (const QJsonValue &value : furnitureArray) {
+        if (!value.isObject()) {
+            continue;
+        }
+        FurnitureItem *item = FurnitureItem::fromJson(value.toObject());
+        addItem(item);
+    }
+}
+
+void DesignScene::resetScene()
+{
+    clear();
+    setSceneRect(-50000.0, -50000.0, 100000.0, 100000.0);
+    m_blueprintItem = nullptr;
+    m_activeWall = nullptr;
+    m_editWall = nullptr;
+    m_dragWall = nullptr;
+    m_editHandle = Handle_None;
+    m_calibrationLine = nullptr;
+    m_snapIndicator = nullptr;
+    m_lengthIndicator = nullptr;
+    m_previewOpening = nullptr;
+    m_previewFurniture = nullptr;
+    m_hoverWall = nullptr;
+    m_lengthInput.clear();
+    m_lastCalibrationLength = 0.0;
+    m_wallThickness = 30.0;
+    m_wallHeight = 200.0;
+    m_snapEnabled = true;
+    m_snapToGridEnabled = true;
+    m_snapTolerance = 10.0;
+    m_gridSize = 100.0;
+    m_lastDirection = QVector2D(1.0f, 0.0f);
+    m_projectCreatedAt = QDateTime::currentDateTime().toString(Qt::ISODate);
+    initializeHelpers();
+}
+
+QList<WallItem *> DesignScene::walls() const
+{
+    QList<WallItem *> result;
+    const QList<QGraphicsItem *> sceneItems = items();
+    for (QGraphicsItem *item : sceneItems) {
+        auto *wall = qgraphicsitem_cast<WallItem *>(item);
+        if (!wall) {
+            continue;
+        }
+        if (wall->length() < 0.1) {
+            continue;
+        }
+        result.append(wall);
+    }
+    return result;
+}
+
+QList<OpeningItem *> DesignScene::openings() const
+{
+    QList<OpeningItem *> result;
+    const QList<WallItem *> sceneWalls = walls();
+    for (WallItem *wall : sceneWalls) {
+        const QList<OpeningItem *> wallOpenings = wall->openings();
+        for (OpeningItem *opening : wallOpenings) {
+            if (!opening || opening->isPreview()) {
+                continue;
+            }
+            result.append(opening);
+        }
+    }
+    return result;
+}
+
+QList<FurnitureItem *> DesignScene::furniture() const
+{
+    QList<FurnitureItem *> result;
+    const QList<QGraphicsItem *> sceneItems = items();
+    for (QGraphicsItem *item : sceneItems) {
+        auto *furnitureItem = qgraphicsitem_cast<FurnitureItem *>(item);
+        if (!furnitureItem || furnitureItem->isPreview()) {
+            continue;
+        }
+        result.append(furnitureItem);
+    }
+    return result;
+}
+
+BlueprintItem *DesignScene::blueprintItem() const
+{
+    return m_blueprintItem;
 }
 
 void DesignScene::setSnapEnabled(bool enabled)

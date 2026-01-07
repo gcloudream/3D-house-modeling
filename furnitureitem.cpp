@@ -2,6 +2,8 @@
 #include "designscene.h"
 
 #include <QGraphicsSceneMouseEvent>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLineF>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
@@ -172,6 +174,53 @@ QVector3D FurnitureItem::modelScale(const QVector3D &modelSize) const
 QString FurnitureItem::material() const
 {
     return m_asset.material;
+}
+
+QJsonObject FurnitureItem::toJson() const
+{
+    QJsonObject obj;
+    obj["model_id"] = m_assetId;
+    obj["pos"] = QJsonArray{pos().x(), pos().y()};
+    obj["rotate"] = m_rotation;
+    obj["scale"] = QJsonArray{m_scale3D.x(), m_scale3D.y(), m_scale3D.z()};
+    obj["elevation"] = m_elevation;
+    obj["size"] = QJsonArray{m_size2D.width(), m_size2D.height()};
+    obj["height"] = m_height3D;
+    return obj;
+}
+
+FurnitureItem *FurnitureItem::fromJson(const QJsonObject &json)
+{
+    const QString assetId = json.value("model_id").toString();
+    FurnitureItem *item = new FurnitureItem(assetId);
+
+    const QJsonArray posArray = json.value("pos").toArray();
+    item->setPos(QPointF(posArray.size() > 0 ? posArray.at(0).toDouble() : 0.0,
+                         posArray.size() > 1 ? posArray.at(1).toDouble() : 0.0));
+
+    const qreal rotation = json.value("rotate").toDouble(0.0);
+    item->setRotationDegrees(rotation);
+
+    const QJsonArray scaleArray = json.value("scale").toArray();
+    if (scaleArray.size() >= 3) {
+        item->setScale3D(QVector3D(static_cast<float>(scaleArray.at(0).toDouble(1.0)),
+                                   static_cast<float>(scaleArray.at(1).toDouble(1.0)),
+                                   static_cast<float>(scaleArray.at(2).toDouble(1.0))));
+    }
+
+    item->setElevation(json.value("elevation").toDouble(0.0));
+
+    const QJsonArray sizeArray = json.value("size").toArray();
+    if (sizeArray.size() >= 2) {
+        item->setSize2D(QSizeF(sizeArray.at(0).toDouble(),
+                               sizeArray.at(1).toDouble()));
+    }
+
+    if (json.contains("height")) {
+        item->setHeight3D(json.value("height").toDouble());
+    }
+
+    return item;
 }
 
 QMatrix4x4 FurnitureItem::transformMatrix() const

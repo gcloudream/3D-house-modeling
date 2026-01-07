@@ -5,8 +5,10 @@
 #include <QGraphicsPolygonItem>
 #include <QList>
 #include <QPen>
+#include <QString>
 
 class OpeningItem;
+class QJsonObject;
 
 class WallItem : public QGraphicsPolygonItem
 {
@@ -40,14 +42,21 @@ public:
     void removeOpening(OpeningItem *opening);
     QList<OpeningItem *> openings() const;
 
+    QString id() const;
+    void setId(const QString &id);
+    QJsonObject toJson() const;
+    static WallItem *fromJson(const QJsonObject &json);
+
     void setHighlighted(bool highlighted);
     bool isHighlighted() const;
 
 private:
     void syncOpenings();
+    void ensureId();
 
     QPointF m_start;
     QPointF m_end;
+    QString m_id;
     qreal m_thickness;
     qreal m_height;
     QList<OpeningItem *> m_openings;

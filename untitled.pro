@@ -17,6 +17,7 @@ SOURCES += \
     furnitureitem.cpp \
     main.cpp \
     mainwindow.cpp \
+    projectmanager.cpp \
     modelcache.cpp \
     openingitem.cpp \
     view3dwidget.cpp \
@@ -32,6 +33,7 @@ HEADERS += \
     dooritem.h \
     furnitureitem.h \
     mainwindow.h \
+    projectmanager.h \
     modelcache.h \
     openingitem.h \
     view3dwidget.h \
