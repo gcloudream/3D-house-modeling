@@ -40,6 +40,7 @@ private:
     void connectSignals();
     void importBlueprint();
     void updateSelectionDetails();
+    void updateBlueprintDetails();
     void handleCalibration(qreal measuredLength);
     void updateToolHint(DesignScene::Mode mode);
     WallItem *selectedWall() const;
@@ -56,6 +57,7 @@ private:
     ComponentListWidget *m_componentList;
     QGroupBox *m_wallGroup;
     QGroupBox *m_openingGroup;
+    QGroupBox *m_blueprintGroup;
     QLabel *m_nameValue;
     QDoubleSpinBox *m_startXSpin;
     QDoubleSpinBox *m_startYSpin;
@@ -70,6 +72,8 @@ private:
     QDoubleSpinBox *m_openingHeightSpin;
     QDoubleSpinBox *m_openingSillSpin;
     QDoubleSpinBox *m_openingOffsetSpin;
+    QDoubleSpinBox *m_blueprintWidthSpin;
+    QDoubleSpinBox *m_blueprintHeightSpin;
     QSlider *m_blueprintOpacitySlider;
     QAction *m_selectAction;
     QAction *m_drawWallAction;

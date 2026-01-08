@@ -56,6 +56,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_componentList(nullptr)
     , m_wallGroup(nullptr)
     , m_openingGroup(nullptr)
+    , m_blueprintGroup(nullptr)
     , m_nameValue(nullptr)
     , m_startXSpin(nullptr)
     , m_startYSpin(nullptr)
@@ -70,6 +71,8 @@ MainWindow::MainWindow(QWidget *parent)
     , m_openingHeightSpin(nullptr)
     , m_openingSillSpin(nullptr)
     , m_openingOffsetSpin(nullptr)
+    , m_blueprintWidthSpin(nullptr)
+    , m_blueprintHeightSpin(nullptr)
     , m_blueprintOpacitySlider(nullptr)
     , m_selectAction(nullptr)
     , m_drawWallAction(nullptr)
@@ -240,12 +243,6 @@ void MainWindow::setupDocks()
     wallLayout->addRow(tr("高度"), m_heightSpin);
     wallLayout->addRow(tr("厚度"), m_thicknessSpin);
 
-    m_blueprintOpacitySlider = new QSlider(Qt::Horizontal, m_wallGroup);
-    m_blueprintOpacitySlider->setRange(0, 100);
-    m_blueprintOpacitySlider->setValue(60);
-    m_blueprintOpacitySlider->setEnabled(false);
-    wallLayout->addRow(tr("底图透明度"), m_blueprintOpacitySlider);
-
     m_openingGroup = new QGroupBox(tr("门窗属性"), propertiesWidget);
     auto *openingLayout = new QFormLayout(m_openingGroup);
     m_openingTypeValue = new QLabel("-", m_openingGroup);
@@ -272,8 +269,30 @@ void MainWindow::setupDocks()
     openingLayout->addRow(tr("离地"), m_openingSillSpin);
     openingLayout->addRow(tr("距起点"), m_openingOffsetSpin);
 
+    m_blueprintGroup = new QGroupBox(tr("底图属性"), propertiesWidget);
+    auto *blueprintLayout = new QFormLayout(m_blueprintGroup);
+    m_blueprintWidthSpin = new QDoubleSpinBox(m_blueprintGroup);
+    m_blueprintHeightSpin = new QDoubleSpinBox(m_blueprintGroup);
+
+    for (QDoubleSpinBox *spin : {m_blueprintWidthSpin, m_blueprintHeightSpin}) {
+        spin->setRange(0.0, 1000000.0);
+        spin->setDecimals(0);
+        spin->setSuffix(" mm");
+        spin->setEnabled(false);
+    }
+
+    m_blueprintOpacitySlider = new QSlider(Qt::Horizontal, m_blueprintGroup);
+    m_blueprintOpacitySlider->setRange(0, 100);
+    m_blueprintOpacitySlider->setValue(60);
+    m_blueprintOpacitySlider->setEnabled(false);
+
+    blueprintLayout->addRow(tr("长度"), m_blueprintWidthSpin);
+    blueprintLayout->addRow(tr("宽度"), m_blueprintHeightSpin);
+    blueprintLayout->addRow(tr("底图透明度"), m_blueprintOpacitySlider);
+
     propertiesLayout->addWidget(m_wallGroup);
     propertiesLayout->addWidget(m_openingGroup);
+    propertiesLayout->addWidget(m_blueprintGroup);
     propertiesLayout->addStretch();
     m_openingGroup->setVisible(false);
 
@@ -514,6 +533,53 @@ void MainWindow::connectSignals()
                 m_scene->setBlueprintOpacity(value / 100.0);
             });
 
+    connect(m_blueprintWidthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double value) {
+                if (!m_scene || !m_scene->hasBlueprint()) {
+                    return;
+                }
+                if (value <= 0.0) {
+                    updateBlueprintDetails();
+                    return;
+                }
+                const QSizeF size = m_scene->blueprintSize();
+                if (size.width() <= 0.0 || size.height() <= 0.0) {
+                    return;
+                }
+                const double ratio = size.width() / size.height();
+                if (ratio <= 0.0) {
+                    return;
+                }
+                const double newHeight = value / ratio;
+                QSignalBlocker blockHeight(m_blueprintHeightSpin);
+                m_blueprintHeightSpin->setValue(newHeight);
+                m_scene->setBlueprintSize(QSizeF(value, newHeight));
+            });
+
+    connect(m_blueprintHeightSpin,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+                if (!m_scene || !m_scene->hasBlueprint()) {
+                    return;
+                }
+                if (value <= 0.0) {
+                    updateBlueprintDetails();
+                    return;
+                }
+                const QSizeF size = m_scene->blueprintSize();
+                if (size.width() <= 0.0 || size.height() <= 0.0) {
+                    return;
+                }
+                const double ratio = size.width() / size.height();
+                if (ratio <= 0.0) {
+                    return;
+                }
+                const double newWidth = value * ratio;
+                QSignalBlocker blockWidth(m_blueprintWidthSpin);
+                m_blueprintWidthSpin->setValue(newWidth);
+                m_scene->setBlueprintSize(QSizeF(newWidth, value));
+            });
+
     connect(m_lengthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
             [this](double value) {
                 WallItem *wall = selectedWall();
@@ -687,10 +753,74 @@ void MainWindow::importBlueprint()
     m_blueprintOpacitySlider->setValue(60);
 }
 
+void MainWindow::updateBlueprintDetails()
+{
+    if (!m_scene || !m_blueprintWidthSpin || !m_blueprintHeightSpin
+        || !m_blueprintOpacitySlider) {
+        return;
+    }
+
+    const bool hasBlueprint = m_scene->hasBlueprint();
+    m_blueprintWidthSpin->setEnabled(hasBlueprint);
+    m_blueprintHeightSpin->setEnabled(hasBlueprint);
+    m_blueprintOpacitySlider->setEnabled(hasBlueprint);
+
+    QSignalBlocker blockWidth(m_blueprintWidthSpin);
+    QSignalBlocker blockHeight(m_blueprintHeightSpin);
+
+    if (!hasBlueprint) {
+        m_blueprintWidthSpin->setValue(0.0);
+        m_blueprintHeightSpin->setValue(0.0);
+        return;
+    }
+
+    const QSizeF size = m_scene->blueprintSize();
+    m_blueprintWidthSpin->setValue(size.width());
+    m_blueprintHeightSpin->setValue(size.height());
+}
+
 void MainWindow::updateSelectionDetails()
 {
-    OpeningItem *opening = selectedOpening();
+    updateBlueprintDetails();
+
     WallItem *wall = selectedWall();
+    OpeningItem *opening = selectedOpening();
+
+    if (wall) {
+        m_openingGroup->setVisible(false);
+        m_wallGroup->setVisible(true);
+
+        m_nameValue->setText(tr("墙体"));
+        if (m_deleteAction) {
+            m_deleteAction->setEnabled(true);
+        }
+        m_startXSpin->setEnabled(true);
+        m_startYSpin->setEnabled(true);
+        m_endXSpin->setEnabled(true);
+        m_endYSpin->setEnabled(true);
+        m_lengthSpin->setEnabled(true);
+        m_angleSpin->setEnabled(true);
+        m_heightSpin->setEnabled(true);
+        m_thicknessSpin->setEnabled(true);
+
+        QSignalBlocker blockStartX(m_startXSpin);
+        QSignalBlocker blockStartY(m_startYSpin);
+        QSignalBlocker blockEndX(m_endXSpin);
+        QSignalBlocker blockEndY(m_endYSpin);
+        QSignalBlocker blockLength(m_lengthSpin);
+        QSignalBlocker blockAngle(m_angleSpin);
+        QSignalBlocker blockHeight(m_heightSpin);
+        QSignalBlocker blockThickness(m_thicknessSpin);
+        m_startXSpin->setValue(wall->startPos().x());
+        m_startYSpin->setValue(wall->startPos().y());
+        m_endXSpin->setValue(wall->endPos().x());
+        m_endYSpin->setValue(wall->endPos().y());
+        m_lengthSpin->setValue(wall->length());
+        m_angleSpin->setValue(wall->angleDegrees());
+        m_heightSpin->setValue(wall->height());
+        m_thicknessSpin->setValue(wall->thickness());
+        return;
+    }
 
     if (opening) {
         m_wallGroup->setVisible(false);
@@ -722,51 +852,18 @@ void MainWindow::updateSelectionDetails()
     m_openingGroup->setVisible(false);
     m_wallGroup->setVisible(true);
 
-    if (!wall) {
-        m_nameValue->setText("-");
-        if (m_deleteAction) {
-            m_deleteAction->setEnabled(false);
-        }
-        m_startXSpin->setEnabled(false);
-        m_startYSpin->setEnabled(false);
-        m_endXSpin->setEnabled(false);
-        m_endYSpin->setEnabled(false);
-        m_lengthSpin->setEnabled(false);
-        m_angleSpin->setEnabled(false);
-        m_heightSpin->setEnabled(false);
-        m_thicknessSpin->setEnabled(false);
-
-        QSignalBlocker blockStartX(m_startXSpin);
-        QSignalBlocker blockStartY(m_startYSpin);
-        QSignalBlocker blockEndX(m_endXSpin);
-        QSignalBlocker blockEndY(m_endYSpin);
-        QSignalBlocker blockLength(m_lengthSpin);
-        QSignalBlocker blockAngle(m_angleSpin);
-        QSignalBlocker blockHeight(m_heightSpin);
-        QSignalBlocker blockThickness(m_thicknessSpin);
-        m_startXSpin->setValue(0.0);
-        m_startYSpin->setValue(0.0);
-        m_endXSpin->setValue(0.0);
-        m_endYSpin->setValue(0.0);
-        m_lengthSpin->setValue(0.0);
-        m_angleSpin->setValue(0.0);
-        m_heightSpin->setValue(0.0);
-        m_thicknessSpin->setValue(0.0);
-        return;
-    }
-
-    m_nameValue->setText(tr("墙体"));
+    m_nameValue->setText("-");
     if (m_deleteAction) {
-        m_deleteAction->setEnabled(true);
+        m_deleteAction->setEnabled(false);
     }
-    m_startXSpin->setEnabled(true);
-    m_startYSpin->setEnabled(true);
-    m_endXSpin->setEnabled(true);
-    m_endYSpin->setEnabled(true);
-    m_lengthSpin->setEnabled(true);
-    m_angleSpin->setEnabled(true);
-    m_heightSpin->setEnabled(true);
-    m_thicknessSpin->setEnabled(true);
+    m_startXSpin->setEnabled(false);
+    m_startYSpin->setEnabled(false);
+    m_endXSpin->setEnabled(false);
+    m_endYSpin->setEnabled(false);
+    m_lengthSpin->setEnabled(false);
+    m_angleSpin->setEnabled(false);
+    m_heightSpin->setEnabled(false);
+    m_thicknessSpin->setEnabled(false);
 
     QSignalBlocker blockStartX(m_startXSpin);
     QSignalBlocker blockStartY(m_startYSpin);
@@ -776,14 +873,14 @@ void MainWindow::updateSelectionDetails()
     QSignalBlocker blockAngle(m_angleSpin);
     QSignalBlocker blockHeight(m_heightSpin);
     QSignalBlocker blockThickness(m_thicknessSpin);
-    m_startXSpin->setValue(wall->startPos().x());
-    m_startYSpin->setValue(wall->startPos().y());
-    m_endXSpin->setValue(wall->endPos().x());
-    m_endYSpin->setValue(wall->endPos().y());
-    m_lengthSpin->setValue(wall->length());
-    m_angleSpin->setValue(wall->angleDegrees());
-    m_heightSpin->setValue(wall->height());
-    m_thicknessSpin->setValue(wall->thickness());
+    m_startXSpin->setValue(0.0);
+    m_startYSpin->setValue(0.0);
+    m_endXSpin->setValue(0.0);
+    m_endYSpin->setValue(0.0);
+    m_lengthSpin->setValue(0.0);
+    m_angleSpin->setValue(0.0);
+    m_heightSpin->setValue(0.0);
+    m_thicknessSpin->setValue(0.0);
 }
 
 void MainWindow::handleCalibration(qreal measuredLength)
@@ -834,19 +931,23 @@ void MainWindow::updateToolHint(DesignScene::Mode mode)
 WallItem *MainWindow::selectedWall() const
 {
     const QList<QGraphicsItem *> items = m_scene->selectedItems();
-    if (items.isEmpty()) {
-        return nullptr;
+    for (QGraphicsItem *item : items) {
+        WallItem *wall = qgraphicsitem_cast<WallItem *>(item);
+        if (wall) {
+            return wall;
+        }
     }
-
-    return qgraphicsitem_cast<WallItem *>(items.first());
+    return nullptr;
 }
 
 OpeningItem *MainWindow::selectedOpening() const
 {
     const QList<QGraphicsItem *> items = m_scene->selectedItems();
-    if (items.isEmpty()) {
-        return nullptr;
+    for (QGraphicsItem *item : items) {
+        OpeningItem *opening = qgraphicsitem_cast<OpeningItem *>(item);
+        if (opening) {
+            return opening;
+        }
     }
-
-    return qgraphicsitem_cast<OpeningItem *>(items.first());
+    return nullptr;
 }
