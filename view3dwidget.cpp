@@ -24,13 +24,36 @@ constexpr float kRotateSpeed = 0.4f;
 constexpr float kPanSpeedFactor = 0.002f;
 constexpr float kZoomStep = 0.9f;
 
+void appendTriangle(const QVector3D &a,
+                    const QVector3D &b,
+                    const QVector3D &c,
+                    const QVector3D &center,
+                    QVector<VertexData> &vertices)
+{
+    QVector3D normal = QVector3D::crossProduct(b - a, c - a);
+    if (!qFuzzyIsNull(normal.lengthSquared())) {
+        normal.normalize();
+    } else {
+        normal = QVector3D(0.0f, 1.0f, 0.0f);
+    }
+
+    const QVector3D faceCenter = (a + b + c) * (1.0f / 3.0f);
+    if (QVector3D::dotProduct(normal, faceCenter - center) < 0.0f) {
+        normal = -normal;
+    }
+
+    vertices.push_back(VertexData{a, normal});
+    vertices.push_back(VertexData{b, normal});
+    vertices.push_back(VertexData{c, normal});
+}
+
 void appendBoxFromQuad(const QPointF &p1,
                        const QPointF &p2,
                        const QPointF &p3,
                        const QPointF &p4,
                        qreal baseY,
                        qreal height,
-                       QVector<QVector3D> &vertices)
+                       QVector<VertexData> &vertices)
 {
     auto to3d = [baseY](const QPointF &p) {
         return QVector3D(p.x(), static_cast<float>(baseY), -p.y());
@@ -47,18 +70,21 @@ void appendBoxFromQuad(const QPointF &p1,
     const QVector3D t3 = b3 + topOffset;
     const QVector3D t4 = b4 + topOffset;
 
-    vertices << t1 << t2 << t3;
-    vertices << t1 << t3 << t4;
-    vertices << b1 << b3 << b2;
-    vertices << b1 << b4 << b3;
-    vertices << b1 << b2 << t2;
-    vertices << b1 << t2 << t1;
-    vertices << b2 << b3 << t3;
-    vertices << b2 << t3 << t2;
-    vertices << b3 << b4 << t4;
-    vertices << b3 << t4 << t3;
-    vertices << b4 << b1 << t1;
-    vertices << b4 << t1 << t4;
+    const QVector3D center =
+        (b1 + b2 + b3 + b4 + t1 + t2 + t3 + t4) * 0.125f;
+
+    appendTriangle(t1, t2, t3, center, vertices);
+    appendTriangle(t1, t3, t4, center, vertices);
+    appendTriangle(b1, b3, b2, center, vertices);
+    appendTriangle(b1, b4, b3, center, vertices);
+    appendTriangle(b1, b2, t2, center, vertices);
+    appendTriangle(b1, t2, t1, center, vertices);
+    appendTriangle(b2, b3, t3, center, vertices);
+    appendTriangle(b2, t3, t2, center, vertices);
+    appendTriangle(b3, b4, t4, center, vertices);
+    appendTriangle(b3, t4, t3, center, vertices);
+    appendTriangle(b4, b1, t1, center, vertices);
+    appendTriangle(b4, t1, t4, center, vertices);
 }
 }
 
@@ -120,8 +146,11 @@ void View3DWidget::initializeGL()
         QOpenGLShader::Vertex,
         "#version 330 core\n"
         "layout(location = 0) in vec3 a_pos;\n"
+        "layout(location = 1) in vec3 a_normal;\n"
         "uniform mat4 u_mvp;\n"
+        "out vec3 v_normal;\n"
         "void main() {\n"
+        "    v_normal = a_normal;\n"
         "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
         "}\n");
 
@@ -129,10 +158,17 @@ void View3DWidget::initializeGL()
         QOpenGLShader::Fragment,
         "#version 330 core\n"
         "out vec4 FragColor;\n"
+        "in vec3 v_normal;\n"
         "uniform vec3 u_color;\n"
         "uniform float u_alpha;\n"
+        "uniform vec3 u_lightDir;\n"
+        "uniform vec3 u_lightColor;\n"
+        "uniform vec3 u_ambientColor;\n"
         "void main() {\n"
-        "    FragColor = vec4(u_color, u_alpha);\n"
+        "    vec3 normal = normalize(v_normal);\n"
+        "    float diff = max(dot(normalize(u_lightDir), normal), 0.0);\n"
+        "    vec3 lighting = u_ambientColor + u_lightColor * diff;\n"
+        "    FragColor = vec4(u_color * lighting, u_alpha);\n"
         "}\n");
 
     m_program.link();
@@ -147,7 +183,19 @@ void View3DWidget::initializeGL()
 
     m_program.bind();
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(QVector3D), nullptr);
+    glVertexAttribPointer(0,
+                          3,
+                          GL_FLOAT,
+                          GL_FALSE,
+                          sizeof(VertexData),
+                          nullptr);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1,
+                          3,
+                          GL_FLOAT,
+                          GL_FALSE,
+                          sizeof(VertexData),
+                          reinterpret_cast<void *>(sizeof(QVector3D)));
     m_program.release();
     m_vbo.release();
 }
@@ -174,6 +222,12 @@ void View3DWidget::paintGL()
     m_program.bind();
     const QMatrix4x4 mvp = m_projection * viewMatrix();
     m_program.setUniformValue("u_mvp", mvp);
+    const QVector3D lightDir =
+        QVector3D(0.35f, 1.0f, 0.25f).normalized();
+    m_program.setUniformValue("u_lightDir", lightDir);
+    m_program.setUniformValue("u_lightColor", QVector3D(0.92f, 0.94f, 0.96f));
+    m_program.setUniformValue("u_ambientColor",
+                              QVector3D(0.22f, 0.24f, 0.26f));
 
     QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
     if (m_ranges.wallCount > 0) {
@@ -380,7 +434,7 @@ void View3DWidget::rebuildGeometry()
     m_vbo.bind();
     if (m_vertexCount > 0) {
         m_vbo.allocate(m_vertices.constData(),
-                       m_vertexCount * static_cast<int>(sizeof(QVector3D)));
+                       m_vertexCount * static_cast<int>(sizeof(VertexData)));
     } else {
         m_vbo.allocate(nullptr, 0);
     }
@@ -389,7 +443,7 @@ void View3DWidget::rebuildGeometry()
 }
 
 void View3DWidget::appendWallMesh(const WallItem *wall,
-                                  QVector<QVector3D> &vertices)
+                                  QVector<VertexData> &vertices)
 {
     if (!wall) {
         return;
@@ -490,7 +544,7 @@ void View3DWidget::appendWallSegment(const WallItem *wall,
                                      qreal endDistance,
                                      qreal baseY,
                                      qreal height,
-                                     QVector<QVector3D> &vertices) const
+                                     QVector<VertexData> &vertices) const
 {
     if (!wall || endDistance - startDistance < 0.1 || height < 0.1) {
         return;
@@ -521,8 +575,8 @@ void View3DWidget::appendWallSegment(const WallItem *wall,
 
 void View3DWidget::appendOpeningMesh(const WallItem *wall,
                                      const OpeningItem *opening,
-                                     QVector<QVector3D> &solidVertices,
-                                     QVector<QVector3D> &glassVertices) const
+                                     QVector<VertexData> &solidVertices,
+                                     QVector<VertexData> &glassVertices) const
 {
     if (!wall || !opening) {
         return;

@@ -15,6 +15,11 @@ class DesignScene;
 class WallItem;
 class OpeningItem;
 
+struct VertexData {
+    QVector3D position;
+    QVector3D normal;
+};
+
 class View3DWidget : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
 {
     Q_OBJECT
@@ -38,32 +43,32 @@ private slots:
 
 private:
     void rebuildGeometry();
-    void appendWallMesh(const WallItem *wall, QVector<QVector3D> &vertices);
+    void appendWallMesh(const WallItem *wall, QVector<VertexData> &vertices);
     void appendWallSegment(const WallItem *wall,
                            qreal startDistance,
                            qreal endDistance,
                            qreal baseY,
                            qreal height,
-                           QVector<QVector3D> &vertices) const;
+                           QVector<VertexData> &vertices) const;
     void appendOpeningMesh(const WallItem *wall,
                            const OpeningItem *opening,
-                           QVector<QVector3D> &solidVertices,
-                           QVector<QVector3D> &glassVertices) const;
+                           QVector<VertexData> &solidVertices,
+                           QVector<VertexData> &glassVertices) const;
     QMatrix4x4 viewMatrix() const;
 
     DesignScene *m_scene;
     QOpenGLShaderProgram m_program;
     QOpenGLBuffer m_vbo;
     QOpenGLVertexArrayObject m_vao;
-    QVector<QVector3D> m_vertices;
-    QVector<QVector3D> m_wallVertices;
-    QVector<QVector3D> m_doorSingleVertices;
-    QVector<QVector3D> m_doorDoubleVertices;
-    QVector<QVector3D> m_doorSlidingVertices;
-    QVector<QVector3D> m_openingVertices;
-    QVector<QVector3D> m_glassCasementVertices;
-    QVector<QVector3D> m_glassSlidingVertices;
-    QVector<QVector3D> m_glassBayVertices;
+    QVector<VertexData> m_vertices;
+    QVector<VertexData> m_wallVertices;
+    QVector<VertexData> m_doorSingleVertices;
+    QVector<VertexData> m_doorDoubleVertices;
+    QVector<VertexData> m_doorSlidingVertices;
+    QVector<VertexData> m_openingVertices;
+    QVector<VertexData> m_glassCasementVertices;
+    QVector<VertexData> m_glassSlidingVertices;
+    QVector<VertexData> m_glassBayVertices;
     bool m_geometryDirty;
     int m_vertexCount;
     QMatrix4x4 m_projection;
