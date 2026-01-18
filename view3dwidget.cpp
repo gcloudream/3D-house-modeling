@@ -13,6 +13,8 @@
 #include <QHash>
 #include <QLineF>
 #include <QMap>
+#include <QPair>
+#include <QSet>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QOpenGLShader>
@@ -76,6 +78,224 @@ QVector3D furnitureColorFor(const QString &material, const QString &key)
     const QVector3D tint = tintForKey(key);
     return mixColor(base, tint, kFurnitureTintMix);
 }
+
+// Tolerance for considering two points as the same junction
+constexpr qreal kJunctionTolerance = 1.0;
+// Maximum miter extension factor to prevent extremely long spikes at sharp angles
+constexpr qreal kMaxMiterFactor = 3.0;
+
+// Calculate the perpendicular offset for a wall (half thickness on each side)
+QPointF wallPerpOffset(const WallItem *wall)
+{
+    QPointF dir = wall->endPos() - wall->startPos();
+    QVector2D v(dir);
+    if (v.lengthSquared() < 0.0001f) {
+        return QPointF(0, wall->thickness() / 2.0);
+    }
+    v.normalize();
+    // Perpendicular (rotate 90 degrees counterclockwise)
+    QVector2D perp(-v.y(), v.x());
+    return QPointF(perp.x() * wall->thickness() / 2.0, perp.y() * wall->thickness() / 2.0);
+}
+
+// Find the intersection point of two lines defined by point+direction
+// Returns true if an intersection exists (lines are not parallel)
+bool lineIntersection(const QPointF &p1, const QPointF &d1,
+                      const QPointF &p2, const QPointF &d2,
+                      QPointF &intersection)
+{
+    // Solve: p1 + t*d1 = p2 + s*d2
+    // Using cross-product method
+    qreal cross = d1.x() * d2.y() - d1.y() * d2.x();
+    if (qAbs(cross) < 0.0001) {
+        return false;  // Lines are parallel
+    }
+    
+    QPointF delta = p2 - p1;
+    qreal t = (delta.x() * d2.y() - delta.y() * d2.x()) / cross;
+    intersection = p1 + d1 * t;
+    return true;
+}
+
+// Calculate mitered corner points for a wall endpoint connected to another wall
+// This finds where the wall edges would intersect if extended
+// Returns the two corner points for this end of the wall
+void calculateMiterCorners(const WallItem *wall, bool atStart,
+                           const WallItem *adjacentWall,
+                           QPointF &corner1, QPointF &corner2)
+{
+    QPointF wallOffset = wallPerpOffset(wall);
+    QPointF adjOffset = wallPerpOffset(adjacentWall);
+    
+    QPointF wallDir = wall->endPos() - wall->startPos();
+    QPointF adjDir = adjacentWall->endPos() - adjacentWall->startPos();
+    
+    // The junction point (center of the corner)
+    QPointF junctionPt = atStart ? wall->startPos() : wall->endPos();
+    
+    // Wall edge points (on each side of the wall, at junction)
+    QPointF wall_edge_plus = junctionPt + wallOffset;
+    QPointF wall_edge_minus = junctionPt - wallOffset;
+    
+    // Adjacent wall edge points
+    QPointF adj_edge_plus = junctionPt + adjOffset;
+    QPointF adj_edge_minus = junctionPt - adjOffset;
+    
+    // For each side of the wall (+offset and -offset), find where it intersects
+    // with the corresponding side of the adjacent wall
+    
+    // Try ++, +-, -+, -- combinations and pick the correct matches
+    QPointF int_pp, int_pm, int_mp, int_mm;
+    bool has_pp = lineIntersection(wall_edge_plus, wallDir, adj_edge_plus, adjDir, int_pp);
+    bool has_pm = lineIntersection(wall_edge_plus, wallDir, adj_edge_minus, adjDir, int_pm);
+    bool has_mp = lineIntersection(wall_edge_minus, wallDir, adj_edge_plus, adjDir, int_mp);
+    bool has_mm = lineIntersection(wall_edge_minus, wallDir, adj_edge_minus, adjDir, int_mm);
+    
+    qreal maxExtend = wall->thickness() * kMaxMiterFactor;
+    
+    // For the +offset side of the wall, find the valid intersection
+    // The valid one should be relatively close to the junction
+    bool found1 = false;
+    if (has_pp) {
+        qreal dist = QVector2D(int_pp - junctionPt).length();
+        if (dist < maxExtend) {
+            corner1 = int_pp;
+            found1 = true;
+        }
+    }
+    if (!found1 && has_pm) {
+        qreal dist = QVector2D(int_pm - junctionPt).length();
+        if (dist < maxExtend) {
+            corner1 = int_pm;
+            found1 = true;
+        }
+    }
+    if (!found1) {
+        corner1 = wall_edge_plus;
+    }
+    
+    // For the -offset side of the wall
+    bool found2 = false;
+    if (has_mm) {
+        qreal dist = QVector2D(int_mm - junctionPt).length();
+        if (dist < maxExtend) {
+            corner2 = int_mm;
+            found2 = true;
+        }
+    }
+    if (!found2 && has_mp) {
+        qreal dist = QVector2D(int_mp - junctionPt).length();
+        if (dist < maxExtend) {
+            corner2 = int_mp;
+            found2 = true;
+        }
+    }
+    if (!found2) {
+        corner2 = wall_edge_minus;
+    }
+}
+
+
+
+// Find an adjacent wall at a junction point
+const WallItem* findAdjacentWall(const QPointF &point,
+                                  const WallItem *currentWall,
+                                  const QList<WallItem *> &allWalls)
+{
+    for (const WallItem *other : allWalls) {
+        if (other == currentWall) {
+            continue;
+        }
+        if (QVector2D(other->startPos() - point).length() < kJunctionTolerance) {
+            return other;
+        }
+        if (QVector2D(other->endPos() - point).length() < kJunctionTolerance) {
+            return other;
+        }
+    }
+    return nullptr;
+}
+
+
+// Add a triangular prism to fill the gap at a corner junction
+void appendCornerFill(const QPointF &junctionPt, 
+                      const WallItem *wall1, const WallItem *wall2,
+                      QVector<QVector3D> &vertices)
+{
+    if (!wall1 || !wall2) return;
+    
+    QPointF offset1 = wallPerpOffset(wall1);
+    QPointF offset2 = wallPerpOffset(wall2);
+    
+    // Get wall directions (pointing away from junction)
+    QPointF dir1 = wall1->endPos() - wall1->startPos();
+    QPointF dir2 = wall2->endPos() - wall2->startPos();
+    
+    bool wall1AtStart = QVector2D(wall1->startPos() - junctionPt).length() < kJunctionTolerance;
+    bool wall2AtStart = QVector2D(wall2->startPos() - junctionPt).length() < kJunctionTolerance;
+    
+    // Flip direction if junction is at end
+    if (!wall1AtStart) dir1 = -dir1;
+    if (!wall2AtStart) dir2 = -dir2;
+    
+    QVector2D d1(dir1), d2(dir2);
+    if (d1.lengthSquared() > 0.0001f) d1.normalize();
+    if (d2.lengthSquared() > 0.0001f) d2.normalize();
+    
+    // Cross product determines corner type
+    float cross = d1.x() * d2.y() - d1.y() * d2.x();
+    
+    // Get the 4 potential corner points
+    QPointF w1_plus = junctionPt + offset1;
+    QPointF w1_minus = junctionPt - offset1;
+    QPointF w2_plus = junctionPt + offset2;
+    QPointF w2_minus = junctionPt - offset2;
+    
+    // Choose the three points that form the corner gap
+    QPointF corner1, corner2;
+    
+    if (cross > 0) {
+        // Right turn - gap is on the "minus" side
+        corner1 = w1_minus;
+        corner2 = w2_minus;
+    } else {
+        // Left turn - gap is on the "plus" side
+        corner1 = w1_plus;
+        corner2 = w2_plus;
+    }
+    
+    // Only add fill if the corners are different (there's actually a gap)
+    if (QVector2D(corner1 - corner2).length() < 0.5) {
+        return;
+    }
+    
+    qreal height = qMin(wall1->height(), wall2->height());
+    
+    // Create a triangular prism to fill the gap
+    auto to3d = [](const QPointF &p, qreal y) {
+        return QVector3D(p.x(), static_cast<float>(y), -p.y());
+    };
+    
+    QVector3D b0 = to3d(junctionPt, 0);
+    QVector3D b1 = to3d(corner1, 0);
+    QVector3D b2 = to3d(corner2, 0);
+    QVector3D t0 = to3d(junctionPt, height);
+    QVector3D t1 = to3d(corner1, height);
+    QVector3D t2 = to3d(corner2, height);
+    
+    // Top and bottom triangles
+    vertices << t0 << t1 << t2;
+    vertices << b0 << b2 << b1;
+    
+    // Side faces
+    vertices << b0 << b1 << t1;
+    vertices << b0 << t1 << t0;
+    vertices << b0 << t0 << t2;
+    vertices << b0 << t2 << b2;
+    vertices << b1 << b2 << t2;
+    vertices << b1 << t2 << t1;
+}
+
 
 void appendBoxFromQuad(const QPointF &p1,
                        const QPointF &p2,
@@ -416,9 +636,19 @@ void View3DWidget::rebuildGeometry()
     QHash<QString, QVector3D> furnitureColors;
 
     const QList<QGraphicsItem *> items = m_scene->items();
+    
+    // First pass: collect all walls for junction detection
+    QList<WallItem *> allWalls;
     for (QGraphicsItem *item : items) {
         if (auto *wall = qgraphicsitem_cast<WallItem *>(item)) {
-            appendWallMesh(wall, m_wallVertices);
+            allWalls.append(wall);
+        }
+    }
+    
+    // Second pass: generate geometry with junction information
+    for (QGraphicsItem *item : items) {
+        if (auto *wall = qgraphicsitem_cast<WallItem *>(item)) {
+            appendWallMesh(wall, allWalls, m_wallVertices);
             continue;
         }
         if (auto *furniture = qgraphicsitem_cast<FurnitureItem *>(item)) {      
@@ -509,6 +739,7 @@ void View3DWidget::rebuildGeometry()
 }
 
 void View3DWidget::appendWallMesh(const WallItem *wall,
+                                  const QList<WallItem *> &allWalls,
                                   QVector<QVector3D> &vertices)
 {
     if (!wall) {
@@ -521,12 +752,40 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
         return;
     }
 
+    const qreal wallHeight = wall->height();
+    QPointF perpOffset = wallPerpOffset(wall);
+    
+    // Find adjacent walls at each endpoint
+    const WallItem *adjStart = findAdjacentWall(wall->startPos(), wall, allWalls);
+    const WallItem *adjEnd = findAdjacentWall(wall->endPos(), wall, allWalls);
+    
+    // Calculate corner points - use miter if adjacent wall exists
+    QPointF startCorner1, startCorner2;
+    if (adjStart) {
+        calculateMiterCorners(wall, true, adjStart, startCorner1, startCorner2);
+    } else {
+        startCorner1 = wall->startPos() + perpOffset;
+        startCorner2 = wall->startPos() - perpOffset;
+    }
+    
+    QPointF endCorner1, endCorner2;
+    if (adjEnd) {
+        calculateMiterCorners(wall, false, adjEnd, endCorner1, endCorner2);
+    } else {
+        endCorner1 = wall->endPos() + perpOffset;
+        endCorner2 = wall->endPos() - perpOffset;
+    }
+    
     QList<OpeningItem *> openings = wall->openings();
     if (openings.isEmpty()) {
-        appendWallSegment(wall, 0.0, totalLength, 0.0, wall->height(), vertices);
+        // No openings - render full wall with mitered corners
+        appendBoxFromQuad(startCorner1, endCorner1, endCorner2, startCorner2, 
+                          0.0, wallHeight, vertices);
         return;
     }
 
+
+    // For walls with openings, use simple perpendicular offsets for all segments
     std::sort(openings.begin(), openings.end(),
               [](OpeningItem *a, OpeningItem *b) {
                   if (!a || !b) {
@@ -535,17 +794,45 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
                   return a->distanceFromStart() < b->distanceFromStart();
               });
 
+    const QPointF wallStart = wall->startPos();
+    const QPointF wallEnd = wall->endPos();
+    const QPointF dir = (wallEnd - wallStart) / totalLength;
+
     qreal cursor = 0.0;
+    bool isFirstSegment = true;
+    
     for (OpeningItem *opening : openings) {
         if (!opening) {
             continue;
         }
         qreal start = qBound(0.0, opening->distanceFromStart(), totalLength);
         qreal end = qBound(0.0, start + opening->width(), totalLength);
+        
         if (start > cursor) {
-            appendWallSegment(wall, cursor, start, 0.0, wall->height(), vertices);
+            // Wall segment before this opening
+            const QPointF segStart = wallStart + dir * cursor;
+            const QPointF segEnd = wallStart + dir * start;
+            
+            QPointF p1, p4;
+            if (isFirstSegment && cursor < 0.1) {
+                // First segment - use start corners
+                p1 = startCorner1;
+                p4 = startCorner2;
+            } else {
+                p1 = segStart + perpOffset;
+                p4 = segStart - perpOffset;
+            }
+            
+            QPointF p2 = segEnd + perpOffset;
+            QPointF p3 = segEnd - perpOffset;
+            
+            appendBoxFromQuad(p1, p2, p3, p4, 0.0, wallHeight, vertices);
+            isFirstSegment = false;
         }
+        
         cursor = qMax(cursor, end);
+        
+        // Handle opening geometry (doors/windows)
         if (opening->kind() == OpeningItem::Kind::Window) {
             switch (opening->style()) {
             case OpeningItem::Style::SlidingWindow:
@@ -580,7 +867,7 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
             }
         }
 
-        const qreal wallHeight = wall->height();
+        // Wall segments above/below openings
         qreal openingBase =
             opening->kind() == OpeningItem::Kind::Door
                 ? 0.0
@@ -600,10 +887,25 @@ void View3DWidget::appendWallMesh(const WallItem *wall,
         }
     }
 
+    // Final segment after last opening
     if (cursor < totalLength) {
-        appendWallSegment(wall, cursor, totalLength, 0.0, wall->height(), vertices);
+        const QPointF segStart = wallStart + dir * cursor;
+        
+        QPointF p1, p4;
+        if (isFirstSegment && cursor < 0.1) {
+            p1 = startCorner1;
+            p4 = startCorner2;
+        } else {
+            p1 = segStart + perpOffset;
+            p4 = segStart - perpOffset;
+        }
+        
+        // Last segment - use end corners
+        appendBoxFromQuad(p1, endCorner1, endCorner2, p4, 0.0, wallHeight, vertices);
     }
 }
+
+
 
 void View3DWidget::appendWallSegment(const WallItem *wall,
                                      qreal startDistance,

@@ -39,7 +39,9 @@ private slots:
 
 private:
     void rebuildGeometry();
-    void appendWallMesh(const WallItem *wall, QVector<QVector3D> &vertices);
+    void appendWallMesh(const WallItem *wall, 
+                        const QList<WallItem *> &allWalls,
+                        QVector<QVector3D> &vertices);
     void appendWallSegment(const WallItem *wall,
                            qreal startDistance,
                            qreal endDistance,
